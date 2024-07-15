@@ -1,0 +1,26 @@
+const routes = [
+    ...require('./other.routes'),
+    ...require('./auth.routes'),
+    ...require('./user.routes'),
+    ...require('./store.routes'),
+    ...require('./office_inventory.routes'),
+    ...require('./staff.routes'),
+    ...require('./unit.routes'),
+    ...require('./payment.routes'),
+    ...require('./notification.routes'),
+    ...require('./discount.routes'),
+    ...require('./product.routes'),
+    ...require('./variant.routes'),
+    ...require('./packet.routes'),
+    ...require('./ingredient.routes'),
+    ...require('./income.routes'),
+    ...require('./expense.routes'),
+    ...require('./incoming_stock.routes'),
+    ...require('./outgoing_stock.routes'),
+    ...require('./sale.routes'),
+    ...require('./invoice.routes'),
+    ...require('./device.routes'),
+    ...require('./sync.routes'),
+]
+
+module.exports = routes

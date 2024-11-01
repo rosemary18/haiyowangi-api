@@ -87,7 +87,7 @@ const drawTable = (pdfDoc, page, data, startX, startY, rowHeight, columnWidths, 
     }
 };
 
-const createPDF = async (event_name, participants) => {
+const createPDF = async (title, participants) => {
 
     const layout = {
         width: 595.28,
@@ -114,7 +114,7 @@ const createPDF = async (event_name, participants) => {
     }
 
     // Draw title
-    page.drawText(`Event: ${event_name}`, {
+    page.drawText(`${title}`, {
         x: 50,
         y: layout.height - 50,
         size: 10,

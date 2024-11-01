@@ -26,7 +26,9 @@ const handlerGetNotificationByStore = async (req, res) => {
     const id = req.params.id
     const store = await Models.Store.findOne({ where: { id } })
 
-    if (req.auth.credentials?.user?.id != store?.owner_id) return res.response(RES_TYPES[400]("Anda tidak punya akses!")).code(200);
+    if (req.auth.credentials?.user?.id != store?.owner_id) {
+        return res.response(RES_TYPES[400]("Anda tidak punya akses!")).code(200);
+    }
 
     const {
         is_read,
@@ -37,16 +39,25 @@ const handlerGetNotificationByStore = async (req, res) => {
     const filter = { store_id: id }
     if (is_read != undefined) filter.is_read = is_read
 
+    // Hitung total notifikasi yang sesuai dengan filter
+    const totalNotifications = await Models.Notification.count({ where: filter });
+
     const notifications = await Models.Notification.findAll({
         where: filter,
         offset: (parseInt(page) - 1) * parseInt(per_page),
-        limit: parseInt(per_page)
-    })
-    let countNotificationsUnread = await Models.Notification.count({ where: { store_id: id, is_read: false } });
+        limit: parseInt(per_page),
+        order: [['id', 'DESC']],
+    });
+
+    const countNotificationsUnread = await Models.Notification.count({ where: { store_id: id, is_read: false } });
+
+    const totalPages = Math.ceil(totalNotifications / parseInt(per_page));
 
     return res.response(RES_TYPES[200]({
         notifications,
-        unread: countNotificationsUnread
+        unread: countNotificationsUnread,
+        current_page: parseInt(page),
+        total_page: totalPages
     })).code(200);
 }
 
@@ -68,6 +79,21 @@ const handlerReadNotification = async (req, res) => {
     notification.is_read = true
     notification.save()
     return res.response(RES_TYPES[200](notification.toJSON())).code(200);
+}
+
+const handlerReadNotificationStore = async (req, res) => {
+
+    const id = req.params.id
+    const store = await Models.Store.findOne({ where: { id } })
+
+    if (!store) return res.response(RES_TYPES[400]('Toko tidak ditemukan!')).code(400);
+    if (req.auth.credentials?.user?.id != store?.owner_id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
+
+    // Mark as read
+
+    await Models.Notification.update({ is_read: true }, { where: { store_id: id, is_read: false } })
+    
+    return res.response(RES_TYPES[200](null, "Success")).code(200);
 }
 
 const handlerDeleteNotification = async (req, res) => {
@@ -128,6 +154,11 @@ const routes = [
         method: FETCH_REQUEST_TYPES.PUT,
         path: abs_path + '/{id}',
         handler: handlerReadNotification
+    },
+    {
+        method: FETCH_REQUEST_TYPES.PUT,
+        path: abs_path + '/store/{id}',
+        handler: handlerReadNotificationStore
     },
     {
         method: FETCH_REQUEST_TYPES.DELETE,

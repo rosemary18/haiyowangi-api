@@ -21,6 +21,7 @@ const routes = [
     ...require('./invoice.routes'),
     ...require('./device.routes'),
     ...require('./sync.routes'),
+    ...require('./insight.routes'),
 ]
 
 module.exports = routes

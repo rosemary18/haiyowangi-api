@@ -25,7 +25,7 @@ const Store = db.define('tbl_stores', {
         defaultValue: true
     },
     last_sync: {
-        type: DataTypes.DATE,
+        type: DataTypes.STRING,
     },
     owner_id: {
         type: DataTypes.BIGINT,
@@ -36,12 +36,12 @@ const Store = db.define('tbl_stores', {
         }
     },
     created_at: {
-        type: DataTypes.DATE,
-        defaultValue: DataTypes.NOW
+        type: DataTypes.STRING,
+        defaultValue: (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
     },
     updated_at: {
-        type: DataTypes.DATE,
-        defaultValue: DataTypes.NOW
+        type: DataTypes.STRING,
+        defaultValue: (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
     }
 }, { timestamps: false });
 

@@ -52,7 +52,23 @@ const handlerGetDiscounts = async (req, res) => {
 const handlerGetDiscount = async (req, res) => {
 
     const id = req.params.id
-    const discount = await Models.Discount.findOne({ where: { id } })
+    const discount = await Models.Discount.findOne({ 
+        where: { id },
+        include: [
+            {
+                model: Models.Product,
+                as: 'product'
+            },
+            {
+                model: Models.Variant,
+                as: 'variant'
+            },
+            {
+                model: Models.Packet,
+                as: 'packet'
+            }
+        ], 
+    })
 
     if (!discount) return res.response(RES_TYPES[400]('Diskon tidak ditemukan!')).code(400);
 
@@ -71,7 +87,8 @@ const handlerGetDiscountsByStore = async (req, res) => {
         order_by = 'id',
         order_type = 'DESC',
         page = 1,
-        per_page = 15
+        per_page = 15,
+        is_active = null
     } = req.query
 
     const filter = { store_id: id }
@@ -82,16 +99,52 @@ const handlerGetDiscountsByStore = async (req, res) => {
         ]
     }
 
+    if (is_active == true) {
+        let date = new Date();
+        filter[Op.and] = [
+            {
+                date_valid: {
+                    [Op.lte]: `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()} 00:00:01`
+                },
+                valid_until: {
+                    [Op.gte]: `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()} 23:59:59`
+                },
+            }
+        ]
+    }
+
+    const totalPages = Math.ceil((await Models.Discount.count({ where: filter })) / parseInt(per_page))
+    const total = await Models.Discount.count({ where: filter })
+
     const discounts = await Models.Discount.findAll({
         where: filter,
+        include: [
+            {
+                model: Models.Product,
+                as: 'product'
+            },
+            {
+                model: Models.Variant,
+                as: 'variant'
+            },
+            {
+                model: Models.Packet,
+                as: 'packet'
+            }
+        ],
         order: [[order_by, order_type]],
         offset: (parseInt(page) - 1) * parseInt(per_page),
-        limit: parseInt(per_page)
+        limit: parseInt(per_page),
     })
 
     if (!discounts) return res.response(RES_TYPES[400]('Diskon tidak ditemukan!')).code(400);
 
-    return res.response(RES_TYPES[200](discounts)).code(200);
+    return res.response(RES_TYPES[200]({
+        discounts,
+        total,
+        current_page: parseInt(page),
+        total_page: totalPages
+    })).code(200);
 }
 
 const handlerCreateDiscount = async (req, res) => {
@@ -100,8 +153,8 @@ const handlerCreateDiscount = async (req, res) => {
         store_id,
         name,
         code,
-        nominal,
-        percentage,
+        nominal = 0,
+        percentage = 0,
         is_percentage,
         date_valid,
         valid_until,
@@ -131,8 +184,8 @@ const handlerCreateDiscount = async (req, res) => {
         nominal: nominal || 0,
         percentage: percentage || 0,
         is_percentage: is_percentage || false,
-        date_valid,
-        valid_until,
+        date_valid: `${date_valid} 00:00:01`,
+        valid_until: `${valid_until} 23:59:59`,
         multiplication: multiplication || 0,
         max_items_qty: max_items_qty || 0,
         min_items_qty: min_items_qty || 0,
@@ -169,6 +222,7 @@ const handlerUpdateDiscount = async (req, res) => {
         valid_until,
         max_items_qty,
         min_items_qty,
+        multiplication,
         special_for_product_id,
         special_for_variant_id,
         special_for_packet_id,
@@ -184,6 +238,7 @@ const handlerUpdateDiscount = async (req, res) => {
         !valid_until &&
         !max_items_qty &&
         !min_items_qty &&
+        !multiplication &&
         !special_for_product_id &&
         !special_for_variant_id &&
         !special_for_packet_id
@@ -203,19 +258,25 @@ const handlerUpdateDiscount = async (req, res) => {
     if (nominal != undefined) discount.nominal = nominal
     if (percentage != undefined) discount.percentage = percentage
     if (is_percentage != undefined) discount.is_percentage = is_percentage
-    if (date_valid != undefined) discount.date_valid = date_valid
-    if (valid_until != undefined) discount.valid_until = valid_until
+    if (date_valid != undefined) discount.date_valid = `${date_valid} 00:00:01`
+    if (valid_until != undefined) discount.valid_until = `${valid_until} 23:59:59`
     if (max_items_qty != undefined) discount.max_items_qty = max_items_qty
     if (min_items_qty != undefined) discount.min_items_qty = min_items_qty
+    if (multiplication != undefined) discount.multiplication = multiplication
     if (special_for_product_id != undefined) discount.special_for_product_id = special_for_product_id
     if (special_for_variant_id != undefined) discount.special_for_variant_id = special_for_variant_id
     if (special_for_packet_id != undefined) discount.special_for_packet_id = special_for_packet_id
 
-    const isUpdated = await discount.save()
+    discount.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:');
 
-    if (!isUpdated) return res.response(RES_TYPES[400]('Diskon gagal di ubah')).code(400);
+    try {
+        await discount.save()
+        return res.response(RES_TYPES[200](discount, "Diskon telah di ubah")).code(200);
+    } catch (error) {
+        console.log(error)
+        return res.response(RES_TYPES[500]("Diskon gagal di ubah")).code(500);
+    }
 
-    return res.response(RES_TYPES[200](discount, "Diskon telah di ubah")).code(200);
 }
 
 const handlerDeleteDiscount = async (req, res) => {

@@ -30,13 +30,13 @@ const Income = db.define('tbl_incomes', {
     },
     created_at: {
         allowNull: false,
-        type: DataTypes.DATE,
-        defaultValue: DataTypes.NOW
+        type: DataTypes.STRING,
+        defaultValue: (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
     },
     updated_at: {
         allowNull: false,
-        type: DataTypes.DATE,
-        defaultValue: DataTypes.NOW
+        type: DataTypes.STRING,
+        defaultValue: (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
     }
 }, { timestamps: false });
 

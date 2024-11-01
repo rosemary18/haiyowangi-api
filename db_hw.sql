@@ -3,9 +3,9 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Jun 21, 2024 at 12:37 PM
+-- Generation Time: Nov 01, 2024 at 05:09 PM
 -- Server version: 10.4.28-MariaDB
--- PHP Version: 8.2.4
+-- PHP Version: 8.0.28
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -98,7 +98,6 @@ CREATE TABLE `tbl_incomes` (
   `updated_at` datetime NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-
 -- --------------------------------------------------------
 
 --
@@ -129,7 +128,8 @@ CREATE TABLE `tbl_incoming_stock_items` (
   `variant_id` bigint(20) DEFAULT NULL,
   `qty` double DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
-  `updated_at` datetime NOT NULL DEFAULT current_timestamp()
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `ingredient_id` bigint(20) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -251,7 +251,8 @@ CREATE TABLE `tbl_outgoing_stock_items` (
   `variant_id` bigint(20) DEFAULT NULL,
   `qty` double DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
-  `updated_at` datetime NOT NULL DEFAULT current_timestamp()
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `ingredient_id` bigint(20) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -617,7 +618,8 @@ ALTER TABLE `tbl_incoming_stock_items`
   ADD PRIMARY KEY (`id`),
   ADD KEY `incoming_stock_id` (`incoming_stock_id`),
   ADD KEY `product_id` (`product_id`),
-  ADD KEY `variant_id` (`variant_id`);
+  ADD KEY `variant_id` (`variant_id`),
+  ADD KEY `fk_incoming_ingredient` (`ingredient_id`);
 
 --
 -- Indexes for table `tbl_ingredients`
@@ -673,7 +675,8 @@ ALTER TABLE `tbl_outgoing_stock_items`
   ADD PRIMARY KEY (`id`),
   ADD KEY `outgoing_stock_id` (`outgoing_stock_id`),
   ADD KEY `product_id` (`product_id`),
-  ADD KEY `variant_id` (`variant_id`);
+  ADD KEY `variant_id` (`variant_id`),
+  ADD KEY `fk_outgoing_ingredient` (`ingredient_id`);
 
 --
 -- Indexes for table `tbl_packets`
@@ -800,97 +803,97 @@ ALTER TABLE `tbl_variant_type_items`
 -- AUTO_INCREMENT for table `tbl_devices`
 --
 ALTER TABLE `tbl_devices`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
 
 --
 -- AUTO_INCREMENT for table `tbl_discounts`
 --
 ALTER TABLE `tbl_discounts`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=23;
 
 --
 -- AUTO_INCREMENT for table `tbl_expenses`
 --
 ALTER TABLE `tbl_expenses`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- AUTO_INCREMENT for table `tbl_incomes`
 --
 ALTER TABLE `tbl_incomes`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=29;
 
 --
 -- AUTO_INCREMENT for table `tbl_incoming_stocks`
 --
 ALTER TABLE `tbl_incoming_stocks`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=33;
 
 --
 -- AUTO_INCREMENT for table `tbl_incoming_stock_items`
 --
 ALTER TABLE `tbl_incoming_stock_items`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=28;
 
 --
 -- AUTO_INCREMENT for table `tbl_ingredients`
 --
 ALTER TABLE `tbl_ingredients`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 
 --
 -- AUTO_INCREMENT for table `tbl_ingredient_items`
 --
 ALTER TABLE `tbl_ingredient_items`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=46;
 
 --
 -- AUTO_INCREMENT for table `tbl_invoices`
 --
 ALTER TABLE `tbl_invoices`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=24;
 
 --
 -- AUTO_INCREMENT for table `tbl_notifications`
 --
 ALTER TABLE `tbl_notifications`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=47;
 
 --
 -- AUTO_INCREMENT for table `tbl_office_inventories`
 --
 ALTER TABLE `tbl_office_inventories`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=29;
 
 --
 -- AUTO_INCREMENT for table `tbl_outgoing_stocks`
 --
 ALTER TABLE `tbl_outgoing_stocks`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
 
 --
 -- AUTO_INCREMENT for table `tbl_outgoing_stock_items`
 --
 ALTER TABLE `tbl_outgoing_stock_items`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
 
 --
 -- AUTO_INCREMENT for table `tbl_packets`
 --
 ALTER TABLE `tbl_packets`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=15;
 
 --
 -- AUTO_INCREMENT for table `tbl_packet_items`
 --
 ALTER TABLE `tbl_packet_items`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=26;
 
 --
 -- AUTO_INCREMENT for table `tbl_payments`
 --
 ALTER TABLE `tbl_payments`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
 
 --
 -- AUTO_INCREMENT for table `tbl_payment_types`
@@ -902,31 +905,31 @@ ALTER TABLE `tbl_payment_types`
 -- AUTO_INCREMENT for table `tbl_products`
 --
 ALTER TABLE `tbl_products`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=43;
 
 --
 -- AUTO_INCREMENT for table `tbl_sales`
 --
 ALTER TABLE `tbl_sales`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=35;
 
 --
 -- AUTO_INCREMENT for table `tbl_sale_items`
 --
 ALTER TABLE `tbl_sale_items`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=64;
 
 --
 -- AUTO_INCREMENT for table `tbl_staffs`
 --
 ALTER TABLE `tbl_staffs`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
 
 --
 -- AUTO_INCREMENT for table `tbl_stores`
 --
 ALTER TABLE `tbl_stores`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- AUTO_INCREMENT for table `tbl_units`
@@ -938,31 +941,31 @@ ALTER TABLE `tbl_units`
 -- AUTO_INCREMENT for table `tbl_users`
 --
 ALTER TABLE `tbl_users`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
 
 --
 -- AUTO_INCREMENT for table `tbl_variants`
 --
 ALTER TABLE `tbl_variants`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=53;
 
 --
 -- AUTO_INCREMENT for table `tbl_variant_items`
 --
 ALTER TABLE `tbl_variant_items`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=23;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=82;
 
 --
 -- AUTO_INCREMENT for table `tbl_variant_types`
 --
 ALTER TABLE `tbl_variant_types`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=67;
 
 --
 -- AUTO_INCREMENT for table `tbl_variant_type_items`
 --
 ALTER TABLE `tbl_variant_type_items`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=24;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=192;
 
 --
 -- Constraints for dumped tables
@@ -1005,6 +1008,7 @@ ALTER TABLE `tbl_incoming_stocks`
 -- Constraints for table `tbl_incoming_stock_items`
 --
 ALTER TABLE `tbl_incoming_stock_items`
+  ADD CONSTRAINT `fk_incoming_ingredient` FOREIGN KEY (`ingredient_id`) REFERENCES `tbl_ingredients` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   ADD CONSTRAINT `tbl_incoming_stock_items_ibfk_4` FOREIGN KEY (`incoming_stock_id`) REFERENCES `tbl_incoming_stocks` (`id`) ON DELETE NO ACTION ON UPDATE CASCADE,
   ADD CONSTRAINT `tbl_incoming_stock_items_ibfk_5` FOREIGN KEY (`product_id`) REFERENCES `tbl_products` (`id`) ON DELETE NO ACTION ON UPDATE CASCADE,
   ADD CONSTRAINT `tbl_incoming_stock_items_ibfk_6` FOREIGN KEY (`variant_id`) REFERENCES `tbl_variants` (`id`) ON DELETE NO ACTION ON UPDATE CASCADE;
@@ -1054,6 +1058,7 @@ ALTER TABLE `tbl_outgoing_stocks`
 -- Constraints for table `tbl_outgoing_stock_items`
 --
 ALTER TABLE `tbl_outgoing_stock_items`
+  ADD CONSTRAINT `fk_outgoing_ingredient` FOREIGN KEY (`ingredient_id`) REFERENCES `tbl_ingredients` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   ADD CONSTRAINT `tbl_outgoing_stock_items_ibfk_4` FOREIGN KEY (`outgoing_stock_id`) REFERENCES `tbl_outgoing_stocks` (`id`) ON DELETE NO ACTION ON UPDATE CASCADE,
   ADD CONSTRAINT `tbl_outgoing_stock_items_ibfk_5` FOREIGN KEY (`product_id`) REFERENCES `tbl_products` (`id`) ON DELETE NO ACTION ON UPDATE CASCADE,
   ADD CONSTRAINT `tbl_outgoing_stock_items_ibfk_6` FOREIGN KEY (`variant_id`) REFERENCES `tbl_variants` (`id`) ON DELETE NO ACTION ON UPDATE CASCADE;

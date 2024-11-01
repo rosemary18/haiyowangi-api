@@ -3,6 +3,7 @@ const Models = require('../../models')
 const { base_path } = require('./api.config');
 const { RES_TYPES, FETCH_REQUEST_TYPES } = require('../../types');
 const { Op } = require('sequelize');
+const { ingredientTriggers } = require('../../utils');
 const abs_path = base_path + "/outgoing-stock"
 
 // Handlers
@@ -66,19 +67,51 @@ const handlerGetAllOutgoingStocks = async (req, res) => {
 const handlerGetOutgoingStock = async (req, res) => {
 
     const id = req.params.id
-    const outgoingStock = await Models.OutgoingStock.findOne({
-        where: { id },
-        include: [
-            {
-                model: Models.OutgoingStockItem,
-                as: 'outgoing_stock_items',
-            }
-        ]
-    })
-
-    if (!outgoingStock) return res.response(RES_TYPES[400]('Stok keluar tidak ditemukan!')).code(400);
-
-    return res.response(RES_TYPES[200](outgoingStock)).code(200);
+    
+    try {
+        const outgoingStock = await Models.OutgoingStock.findOne({
+            where: { id },
+            include: [
+                {
+                    model: Models.OutgoingStockItem,
+                    as: 'outgoing_stock_items',
+                    include: [
+                        {
+                            model: Models.Product,
+                            as: 'product',
+                            include: {
+                                model: Models.Unit,
+                                as: 'uom'
+                            }
+                        },
+                        {
+                            model: Models.Variant,
+                            as: 'variant',
+                            include: {
+                                model: Models.Unit,
+                                as: 'uom'
+                            }
+                        },
+                        {
+                            model: Models.Ingredient,
+                            as: 'ingredient',
+                            include: {
+                                model: Models.Unit,
+                                as: 'uom'
+                            }
+                        },
+                    ]
+                }
+            ]
+        })
+    
+        if (!outgoingStock) return res.response(RES_TYPES[400]('Stok keluar tidak ditemukan!')).code(400);
+    
+        return res.response(RES_TYPES[200](outgoingStock)).code(200);
+    } catch (error) {
+        console.log(error)
+        return res.response(RES_TYPES[500](error)).code(400);
+    }
 }
 
 const handlerGetOutgoingStockByStore = async (req, res) => {
@@ -94,9 +127,12 @@ const handlerGetOutgoingStockByStore = async (req, res) => {
         order_by = 'id',
         order_type = 'DESC',
         page = 1,
-        per_page = 15
+        per_page = 15,
+        start_date = null,
+        end_date = null
     } = req.query
 
+    
     const filter = { store_id: id }
     if (search_text) {
         filter[Op.or] = [
@@ -105,12 +141,31 @@ const handlerGetOutgoingStockByStore = async (req, res) => {
         ]
     }
 
+    if (start_date || end_date) {
+        filter['created_at'] = {
+            [Op.between]: [ start_date, `${end_date} 23:59:59` ]
+        }
+    }
+
+    const totalPages = Math.ceil((await Models.OutgoingStock.count({ where: filter })) / parseInt(per_page))
+    const total = await Models.OutgoingStock.count({ where: filter })
+
     const outgoingStocks = await Models.OutgoingStock.findAll({
         where: filter,
         include: [
             {
                 model: Models.OutgoingStockItem,
                 as: 'outgoing_stock_items',
+                include: [
+                    {
+                        model: Models.Product,
+                        as: 'product',
+                    },
+                    {
+                        model: Models.Variant,
+                        as: 'variant',
+                    }
+                ]
             }
         ],
         order: [[order_by, order_type]],
@@ -120,7 +175,12 @@ const handlerGetOutgoingStockByStore = async (req, res) => {
 
     if (!outgoingStocks) return res.response(RES_TYPES[400]('Stok keluar tidak ditemukan!')).code(400);
 
-    return res.response(RES_TYPES[200](outgoingStocks)).code(200);
+    return res.response(RES_TYPES[200]({
+        outgoings_stock: outgoingStocks,
+        total,
+        current_page: parseInt(page),
+        total_page: totalPages
+    })).code(200);
 }
 
 const handlerGetAllOutgoingStockItems = async (req, res) => {
@@ -248,6 +308,7 @@ const handlerAddOutgoingStockItem = async (req, res) => {
             }
             if (item?.product_id) newOutgoingStockItem.product_id = item?.product_id
             if (item?.variant_id) newOutgoingStockItem.variant_id = item?.variant_id
+            if (item?.ingredient_id) newOutgoingStockItem.ingredient_id = item?.ingredient_id
             await Models.OutgoingStockItem.create(newOutgoingStockItem);
         }
     } catch (error) {
@@ -286,6 +347,10 @@ const handlerUpdateOutgoingStock = async (req, res) => {
                     {
                         model: Models.Variant,
                         as: 'variant'
+                    },
+                    {
+                        model: Models.Ingredient,
+                        as: 'ingredient'
                     }
                 ]
             }
@@ -327,9 +392,20 @@ const handlerUpdateOutgoingStock = async (req, res) => {
                         { where: { id: outgoingStockItem.variant_id } }
                     )
                 }
+                // Call stock ingredient trigger
+                if (outgoingStockItem.ingredient_id && outgoingStockItem.ingredient){
+                    if ((outgoingStockItem.ingredient.qty - outgoingStockItem.qty) < 0) return res.response(RES_TYPES[400](`Gagal, jumlah stok keluar bahan ${outgoingStockItem.ingredient.name} melebihi stok yang ada!`)).code(400);
+                    await Models.Ingredient.update(
+                        {
+                            qty: outgoingStockItem.ingredient.qty - outgoingStockItem.qty
+                        },
+                        { where: { id: outgoingStockItem.ingredient_id } }
+                    )
+                    ingredientTriggers([outgoingStockItem.ingredient_id], outgoingStock?.store_id)
+                }
             }
         }
-        outgoingStock.updated_at = new Date();
+        outgoingStock.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:');
         await outgoingStock.save()
     } catch (error) {
         return res.response(RES_TYPES[500](error)).code(500);
@@ -371,7 +447,7 @@ const handlerUpdateOutgoingStockItem = async (req, res) => {
 
     try {
         outgoingStockItem.qty = qty
-        outgoingStock.updated_at = new Date()
+        outgoingStock.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
         await outgoingStockItem.save()
         await outgoingStock.save()
     } catch (error) {

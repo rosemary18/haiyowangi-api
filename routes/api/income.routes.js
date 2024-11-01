@@ -114,9 +114,9 @@ const handlerGetIncomeByStore = async (req, res) => {
     if (tag) filter['tag'] = tag
 
     if (start_date || end_date) {
-        filter['created_at'] = {}
-        if (start_date) filter['created_at'][Op.gte] = start_date
-        if (end_date) filter['created_at'][Op.lte] = end_date
+        filter['created_at'] = {
+            [Op.between]: [ start_date, `${end_date} 23:59:59` ]
+        }
     }
 
     if (search_text) {
@@ -127,6 +127,8 @@ const handlerGetIncomeByStore = async (req, res) => {
         ]
     }
 
+    const totalPages = Math.ceil((await Models.Income.count({ where: filter })) / parseInt(per_page))
+
     const incomes = await Models.Income.findAll({
         where: filter,
         order: [[order_by, order_type?.toUpperCase()]],
@@ -136,7 +138,11 @@ const handlerGetIncomeByStore = async (req, res) => {
 
     if (!incomes) return res.response(RES_TYPES[400]('Pendapatan tidak ditemukan!')).code(400);
 
-    return res.response(RES_TYPES[200](incomes)).code(200);
+    return res.response(RES_TYPES[200]({
+        incomes: incomes,
+        current_page: parseInt(page),
+        total_page: totalPages
+    })).code(200);
 }
 
 const handlerCreateIncome = async (req, res) => {
@@ -146,7 +152,8 @@ const handlerCreateIncome = async (req, res) => {
         name,
         tag,
         description,
-        nominal
+        nominal,
+        date
     } = req.payload || {}
 
     if (!store_id) return res.response(RES_TYPES[400]('Toko harus diisi!')).code(400);
@@ -167,6 +174,8 @@ const handlerCreateIncome = async (req, res) => {
         nominal
     }
 
+    if (date) newIncome['created_at'] = (new Date(date)).toLocaleString('en-CA', { hour12: false }).replace(',', ' ').replace('24:00:00', '00:00:00')
+
     if (description) newIncome['description'] = description
 
     const income = await Models.Income.create(newIncome)
@@ -183,7 +192,8 @@ const handlerUpdateIncome = async (req, res) => {
         name,
         tag,
         description,
-        nominal
+        nominal,
+        date
     } = req.payload || {}
 
     if (!name && !tag && !description && !nominal) return res.response(RES_TYPES[400]('Tidak ada data yang diubah!')).code(400);
@@ -205,9 +215,12 @@ const handlerUpdateIncome = async (req, res) => {
     if (tag) income.tag = tag
     if (description) income.description = description
     if (nominal) income.nominal = nominal
+    if (date) {
+        income.created_at = date
+    }
 
     try {
-        income.updated_at = new Date()
+        income.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
         await income.save()
     } catch (error) {
         console.log(error)

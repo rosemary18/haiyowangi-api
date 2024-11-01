@@ -46,8 +46,13 @@ Discount.belongsTo(Product, { foreignKey: 'special_for_product_id', as: 'product
 Discount.belongsTo(Variant, { foreignKey: 'special_for_variant_id', as: 'variant' });
 Discount.belongsTo(Packet, { foreignKey: 'special_for_packet_id', as: 'packet' });
 
+Product.hasMany(IngredientItem, { foreignKey: 'product_id', as: 'ingredients' });
+Variant.hasMany(IngredientItem, { foreignKey: 'variant_id', as: 'ingredients' });
 Ingredient.hasMany(IngredientItem, { foreignKey: 'ingredient_id', as: 'ingredients' });
 IngredientItem.belongsTo(Ingredient, { foreignKey: 'ingredient_id', as: 'ingredient' });
+
+Invoice.belongsTo(Payment, { foreignKey: 'payment_id', as: 'payment' });
+OutgoingStockItem.belongsTo(Ingredient, { foreignKey: 'ingredient_id', as: 'ingredient' });
 
 module.exports = {
     PacketItem,

@@ -1,7 +1,7 @@
 const Models = require('../../models')
 const { base_path } = require('./api.config');
 const { RES_TYPES, FETCH_REQUEST_TYPES } = require('../../types');
-const { sendEmail, ImageUploader } = require('../../utils');
+const { sendEmail, Uploader } = require('../../utils');
 const fs = require('fs');
 const Path = require('path');
 const { Op } = require('sequelize');
@@ -145,7 +145,7 @@ const handlerUpdateStore = async (req, res) => {
     if (phone) store.phone = phone
     if (description) store.description = description
 
-    store.updated_at = new Date();
+    store.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:');
     store.save()
 
     return res.response(RES_TYPES[200](store, 'Toko berhasil diperbarui')).code(200);
@@ -160,13 +160,7 @@ const handlerUpdateStorePhoto = async (req, res) => {
 
     if (req.auth.credentials?.user?.id != store.owner_id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
 
-    const img_name = await new Promise((resolve, reject) => {
-        const uploadSingle = ImageUploader.single('file');
-        uploadSingle(req.raw.req, req.raw.res, (err) => {
-            if (err) reject(err);
-            resolve(req.payload.file ? req.payload.file.filename : null);
-        });
-    });
+    const img_name = await Uploader(req.payload.file);
 
     if (!img_name) return res.response(RES_TYPES[400]('Gagal mengupload gambar!')).code(400);
 
@@ -178,7 +172,7 @@ const handlerUpdateStorePhoto = async (req, res) => {
 
     try {
         store.store_image = req?.url?.origin + '/images/' + img_name
-        store.updated_at = new Date();
+        store.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:');
         store.save();
     } catch (error) {
         return res.response(RES_TYPES[400](error)).code(400);
@@ -198,7 +192,7 @@ const handlerDeleteStore = async (req, res) => {
     if (!store) return res.response(RES_TYPES[400]('Toko tidak ditemukan!')).code(400);
 
     store.is_active = false
-    store.updated_at = new Date();
+    store.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:');
     store.save()
 
     // Send email
@@ -254,9 +248,9 @@ const routes = [
         options: {
             payload: {
                 output: 'stream',
-                parse: false,
-                allow: 'multipart/form-data',
-                maxBytes: 1 * 1024 * 1024
+                parse: true,
+                multipart: true,
+                maxBytes: 3 * 1024 * 1024
             }
         }
     },

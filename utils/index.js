@@ -2,7 +2,8 @@ const { generateQr, generateRandomString } = require('./qr');
 const generateQueueImage = require('./queue-image');
 const createPDF = require('./pdf')
 const { sendEmail } = require('./email')
-const { ImageUploader, FileUploader } = require('./multer');
+const { FileUploader, ImageUploader } = require('./multer');
+const Uploader = require('./uploader');
 
 module.exports = {
     generateQr,
@@ -11,5 +12,7 @@ module.exports = {
     createPDF,
     sendEmail,
     ImageUploader,
-    FileUploader
+    FileUploader,
+    Uploader,
+    ...require("./triggers")
 }

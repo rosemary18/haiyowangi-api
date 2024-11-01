@@ -1,7 +1,7 @@
 const Models = require('../../models')
 const { base_path } = require('./api.config');
 const { RES_TYPES, FETCH_REQUEST_TYPES } = require('../../types');
-const { ImageUploader } = require('../../utils');
+const { Uploader, ingredientTriggers } = require('../../utils');
 const Path = require('path');
 const fs = require('fs');
 const { Op } = require('sequelize');
@@ -35,6 +35,10 @@ const handlerGetIngredient = async (req, res) => {
             {
                 model: Models.Unit,
                 as: 'uom'
+            },
+            {
+                model: Models.IngredientItem,
+                as: 'ingredients'
             }
         ]
     })
@@ -66,6 +70,9 @@ const handlerGetIngredientsByStore = async (req, res) => {
         const ors = searchs.map(search => ({ name: { [Op.like]: `%${search}%` } }));
         filter[Op.or] = ors;
     }
+
+    const totalPages = Math.ceil(await Models.Ingredient.count({ where: filter }) / per_page)
+    const total = await Models.Ingredient.count({ where: filter })
     
     const ingredients = await Models.Ingredient.findAll({
         where: filter,
@@ -73,6 +80,10 @@ const handlerGetIngredientsByStore = async (req, res) => {
             {
                 model: Models.Unit,
                 as: 'uom'
+            },
+            {
+                model: Models.IngredientItem,
+                as: 'ingredients'
             }
         ],
         order: [[order_by, order_type]],
@@ -82,7 +93,12 @@ const handlerGetIngredientsByStore = async (req, res) => {
 
     if (!ingredients) return res.response(RES_TYPES[404]("Bahan baku tidak ditemukan!")).code(404);
     
-    return res.response(RES_TYPES[200](ingredients)).code(200);
+    return res.response(RES_TYPES[200]({
+        ingredients,
+        total,
+        total_page: totalPages,
+        current_page: parseInt(page),
+    })).code(200);
 }
 
 const handlerGetAllIngredientItems = async (req, res) => {
@@ -182,20 +198,25 @@ const handlerGetIngredientItemsByVariant = async (req, res) => {
 
 const handlerCreateIngredient = async (req, res) => {
 
-    const { name, qty, unit_id, store_id } = req.payload || {}
+    try {
+        const { name, qty = 0, unit_id, store_id } = req.payload || {}
 
-    if (!name || !qty || !unit_id || !store_id) return res.response(RES_TYPES[400]('Mohon lengkapi semua data!')).code(400);
+        if (!name || !unit_id || !store_id) return res.response(RES_TYPES[400]('Mohon lengkapi semua data!')).code(400);
 
-    const store = await Models.Store.findOne({ where: { id: store_id } })
+        const store = await Models.Store.findOne({ where: { id: store_id } })
 
-    if (!store) return res.response(RES_TYPES[404]("Toko tidak ditemukan!")).code(404);
-    if (req.auth.credentials?.user?.id != store?.owner_id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
+        if (!store) return res.response(RES_TYPES[404]("Toko tidak ditemukan!")).code(404);
+        if (req.auth.credentials?.user?.id != store?.owner_id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
 
-    const ingredient = await Models.Ingredient.create({ name, qty, unit_id, store_id })
+        const ingredient = await Models.Ingredient.create({ name, qty, unit_id, store_id })
 
-    if (!ingredient) return res.response(RES_TYPES[500]("Gagal membuat bahan baku!")).code(500);
+        if (!ingredient) return res.response(RES_TYPES[500]("Gagal membuat bahan baku!")).code(500);
 
-    return res.response(RES_TYPES[200](ingredient, `Bahan baku ${name} berhasil dibuat.`)).code(200);
+        return res.response(RES_TYPES[200](ingredient, `Bahan baku ${name} berhasil dibuat.`)).code(200);
+    } catch (error) {
+        console.log(error)
+        return res.response(RES_TYPES[500]("Gagal membuat bahan baku!")).code(500);
+    }
 }
 
 const handlerUpdatePhotoIngredient = async (req, res) => {
@@ -212,13 +233,7 @@ const handlerUpdatePhotoIngredient = async (req, res) => {
     if (!ingredient) return res.response(RES_TYPES[404]("Bahan baku tidak ditemukan!")).code(404);
     if (ingredient.store.owner_id != req.auth.credentials?.user?.id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
     
-    const img_name = await new Promise((resolve, reject) => {
-        const uploadSingle = ImageUploader.single('file');
-        uploadSingle(req.raw.req, req.raw.res, (err) => {
-            if (err) reject(err);
-            resolve(req.payload.file ? req.payload.file.filename : null);
-        });
-    });
+    const img_name = await Uploader(req.payload.file);
 
     if (!img_name) return res.response(RES_TYPES[400]('Gagal mengupload gambar!')).code(400);
 
@@ -231,7 +246,7 @@ const handlerUpdatePhotoIngredient = async (req, res) => {
     ingredient.img = req?.url?.origin + '/images/' + img_name
     
     try {
-        ingredient.updated_at = new Date()
+        ingredient.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
         await ingredient.save()
     } catch (error) {
         return res.response(RES_TYPES[400](error)).code(400);
@@ -304,23 +319,25 @@ const handlerCreateIngredientItem = async (req, res) => {
     
     if (!items || items.length == 0) return res.response(RES_TYPES[400]('Mohon lengkapi data!')).code(400);
 
-    const product = await Models.Product.findOne({
-        where: { id: items[0].product_id },
-        include: [
-            {
-                model: Models.Store,
-                as: 'store'
-            }
-        ]
-    })
-
-    if (!product) return res.response(RES_TYPES[404]("Produk tidak ditemukan!")).code(404);
-    if (req.auth.credentials?.user?.id != product?.store?.owner_id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
-
     try {
         for (let i = 0; i < items.length; i++) {            
             const newItem = {}
-            if (items[i]?.product_id) newItem.product_id = items[i]?.product_id
+            if (items[i]?.product_id) {
+                
+                const product = await Models.Product.findOne({
+                    where: { id: items[0].product_id },
+                    include: [
+                        {
+                            model: Models.Store,
+                            as: 'store'
+                        }
+                    ]
+                })
+            
+                if (!product) return res.response(RES_TYPES[404]("Produk tidak ditemukan!")).code(404);
+                if (req.auth.credentials?.user?.id != product?.store?.owner_id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
+                newItem.product_id = items[i]?.product_id
+            }
             if (items[i]?.variant_id) newItem.variant_id = items[i]?.variant_id
             if (items[i]?.ingredient_id) newItem.ingredient_id = items[i]?.ingredient_id
             if (items[i]?.qty) newItem.qty = items[i]?.qty
@@ -349,6 +366,14 @@ const handlerUpdateIngredientItem = async (req, res) => {
             {
                 model: Models.Ingredient,
                 as: 'ingredient'
+            },
+            {
+                model: Models.Product,
+                as: 'product'
+            },
+            {
+                model: Models.Variant,
+                as: 'variant'
             }
         ]
     })
@@ -358,6 +383,7 @@ const handlerUpdateIngredientItem = async (req, res) => {
     try {
         item.qty = qty
         await item.save()
+        ingredientTriggers([item.ingredient_id], item?.product?.store_id || item?.variant?.store_id)
     } catch (error) {
         console.log(error)
         return res.response(RES_TYPES[500]("Gagal mengubah item bahan baku!")).code(500);
@@ -369,13 +395,24 @@ const handlerUpdateIngredientItem = async (req, res) => {
 const handlerDeleteIngredient = async (req, res) => {
 
     const id = req.params.id
-    const store = await Models.Store.findOne({ where: { id } })
     
-    if (req.auth.credentials?.user?.id != store?.owner_id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
-    
-    const ingredient = await Models.Ingredient.findOne({ where: { id } })
+    const ingredient = await Models.Ingredient.findOne({ 
+        where: { id },
+        include: [
+            {
+                model: Models.IngredientItem,
+                as: 'ingredients'
+            },
+            {
+                model: Models.Store,
+                as: 'store'
+            }
+        ]
+    })
 
     if (!ingredient) return res.response(RES_TYPES[404]("Bahan baku tidak ditemukan!")).code(404);
+    if (ingredient?.store?.owner_id != req.auth.credentials?.user?.id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
+    if (ingredient?.ingredients?.length > 0) return res.response(RES_TYPES[400]("Bahan baku tidak dapat dihapus, karena bahan baku telah digunakan! Silakan hapus bahan baku pada produk untuk menghapus bahan baku ini.")).code(400);
 
     try {
         await Models.IngredientItem.destroy({ where: { ingredient_id: id } })
@@ -480,9 +517,9 @@ const routes = [
         options: {
             payload: {
                 output: 'stream',
-                parse: false,
-                allow: 'multipart/form-data',
-                maxBytes: 1 * 1024 * 1024
+                parse: true,
+                multipart: true,
+                maxBytes: 3 * 1024 * 1024
             }
         }
     },

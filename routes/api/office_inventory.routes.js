@@ -25,6 +25,8 @@ const handlerSearchOfficeInventory = async (req, res) => {
 
         if (!search_text) return res.response(RES_TYPES[200]([])).code(200);
 
+        const totalPages = Math.ceil((await Models.OfficeInventory.count({ where: { store_id, name: { [Op.like]: `%${search_text}%` } } })) / parseInt(per_page))
+
         const OfficeInventories = await Models.OfficeInventory.findAll({
             where: {
                 store_id,
@@ -36,7 +38,11 @@ const handlerSearchOfficeInventory = async (req, res) => {
             limit: parseInt(per_page)
         })
 
-        return res.response(RES_TYPES[200](OfficeInventories)).code(200);
+        return res.response(RES_TYPES[200]({
+            data: OfficeInventories,
+            current_page: parseInt(page),
+            total_page: totalPages
+        })).code(200);
     } catch (error) {
         return res.response(RES_TYPES[500](error.message)).code(500);
     }
@@ -81,6 +87,8 @@ const handlerGetOfficeInventoriesByStore = async (req, res) => {
         filter[Op.or] = ors;
     }
 
+    const totalPages = Math.ceil((await Models.OfficeInventory.count({ where: filter })) / parseInt(per_page))
+
     const office_inventories = await Models.OfficeInventory.findAll({
         where: filter,
         order: [[order_by, order_type]],
@@ -90,7 +98,11 @@ const handlerGetOfficeInventoriesByStore = async (req, res) => {
 
     if (!office_inventories) return res.response(RES_TYPES[400]('Office Inventory tidak ditemukan!')).code(400);
     
-    return res.response(RES_TYPES[200](office_inventories)).code(200);
+    return res.response(RES_TYPES[200]({
+        data: office_inventories,
+        current_page: parseInt(page),
+        total_page: totalPages
+    })).code(200);
 }
 
 const handlerCreateOfficeInventory = async (req, res) => {
@@ -120,7 +132,10 @@ const handlerCreateOfficeInventory = async (req, res) => {
         goods_condition
     }
 
-    const office_inventory = await Models.OfficeInventory.create(newOfficeInventory)
+    const office_inventory = await Models.OfficeInventory.create(newOfficeInventory).catch(err => console.log(err));
+
+    if (!office_inventory) return res.response(RES_TYPES[400]('Office Inventory gagal ditambahkan!')).code(400);
+
     return res.response(RES_TYPES[200](office_inventory)).code(200);
 }
 
@@ -144,7 +159,7 @@ const handlerUpdateOfficeInventory = async (req, res) => {
     if (qty) office_inventory.qty = qty
     if (goods_condition) office_inventory.goods_condition = goods_condition
 
-    office_inventory.updated_at = new Date();
+    office_inventory.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:');
     office_inventory.save()
 
     return res.response(RES_TYPES[200](office_inventory.toJSON(), 'Office Inventory berhasil diperbarui')).code(200);

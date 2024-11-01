@@ -20,7 +20,11 @@ const handlerLogin = async (req, res) => {
     // Check user
     const user = await Models.User.findOne({
         where: { email },
-        include: { model: Models.Store, as: 'stores' }
+        include: { 
+            model: Models.Store, 
+            as: 'stores',
+            where: { is_active: true }
+        }
     })
 
     if (user) {
@@ -117,16 +121,23 @@ const handlerSignStore = async (req, res) => {
         include: { model: Models.Store, as: 'store' }
     })
 
-    if (existDevice) return res.response(RES_TYPES[400](`Device sudah terdaftar! Device digunakan pada toko ${existDevice.store.name}`)).code(400);
+    if (existDevice) {
+        // return res.response(RES_TYPES[400](`Device sudah terdaftar! Device digunakan pada toko ${existDevice.store.name}`)).code(400);
+        existDevice.store_id = store_id
+        existDevice.save()
+        return res.response(RES_TYPES[200](existDevice)).code(200);
+    } else {
 
-    const newDevice = await Models.Device.create({
-        device_id,
-        store_id
-    })
+        const newDevice = await Models.Device.create({
+            device_id,
+            store_id
+        })
+    
+        if (!newDevice) return res.response(RES_TYPES[400]('Gagal masuk ke toko!')).code(400);
+    
+        return res.response(RES_TYPES[200](newDevice)).code(200);
+    }
 
-    if (!newDevice) return res.response(RES_TYPES[400]('Gagal masuk ke toko!')).code(400);
-
-    return res.response(RES_TYPES[200](newDevice)).code(200);
 }
 
 const handlerSignOutStore = async (req, res) => {
@@ -159,7 +170,7 @@ const handlerRequestResetPassword = async (req, res) => {
 
     // // Generate token validate until 15 minutes
     const token = Jwt.sign({ id: user?.id }, keys.JWT_SECRET_KEY, { expiresIn: 15 * 60 * 1000 });
-    await user.update({ reset_password_token: token, updated_at: new Date() })
+    await user.update({ reset_password_token: token, updated_at: (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:') })
 
     sendEmail(
         email,
@@ -201,7 +212,7 @@ const handlerRefreshToken = async (req, res) => {
   
         // Update refresh token in database
         user.refresh_token = newRefreshToken;
-        user.updated_at = new Date();
+        user.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:');
         user.save();
         
         return res.response(RES_TYPES[200]({ user_id: user.id, token, refresh_token: newRefreshToken })).code(200);

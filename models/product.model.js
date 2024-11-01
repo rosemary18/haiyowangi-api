@@ -4,7 +4,6 @@ const Store = require('./store.model');
 const Unit = require('./unit.model');
 const Variant = require('./variant.model');
 const VariantType = require('./variant_type.model');
-const Discount = require('./discount.model');
 
 const Product = db.define('tbl_products', {
     id: {
@@ -48,13 +47,13 @@ const Product = db.define('tbl_products', {
     },
     created_at: {
         allowNull: false,
-        type: DataTypes.DATE,
-        defaultValue: DataTypes.NOW
+        type: DataTypes.STRING,
+        defaultValue: (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
     },
     updated_at: {
         allowNull: false,
-        type: DataTypes.DATE,
-        defaultValue: DataTypes.NOW
+        type: DataTypes.STRING,
+        defaultValue: (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
     }
 }, { timestamps: false });
 

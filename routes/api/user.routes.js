@@ -6,8 +6,9 @@ const { base_path } = require('./api.config');
 const Path = require('path');
 const fs = require('fs');
 const { RES_TYPES, FETCH_REQUEST_TYPES } = require('../../types');
-const { ImageUploader } = require('../../utils');
+const { Uploader } = require('../../utils');
 const { Op } = require('sequelize');
+const Joi = require('joi');
 const abs_path = base_path + "/user"
 
 // Handlers
@@ -73,7 +74,7 @@ const handlerResetPassword = async (req, res) => {
     // Registering
     user.password = hashed_password;
     user.reset_password_token = null;
-    user.updated_at = new Date();
+    user.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:');
     user.save();
 
     // Send response 
@@ -112,6 +113,8 @@ const handlerGetUser = async (req, res) => {
 
 const handlerUpdatePhoto = async (req, res) => {
 
+    if (req.payload.file == null) return res.response(RES_TYPES[400]('Sertakan gambar untuk mengganti profil!')).code(400);
+
     const id = req.params.id
 
     if ((req.user?.privilege > 0) && (req.auth.credentials?.user?.id != id)) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
@@ -120,13 +123,7 @@ const handlerUpdatePhoto = async (req, res) => {
 
     if (!user) return res.response(RES_TYPES[400]('Pengguna tidak ditemukan!')).code(400);
 
-    const img_name = await new Promise((resolve, reject) => {
-        const uploadSingle = ImageUploader.single('file');
-        uploadSingle(req.raw.req, req.raw.res, (err) => {
-            if (err) reject(err);
-            resolve(req.payload.file ? req.payload.file.filename : null);
-        });
-    });
+    const img_name = await Uploader(req.payload.file);
 
     if (!img_name) return res.response(RES_TYPES[400]('Gagal mengupload gambar!')).code(400);
 
@@ -137,7 +134,7 @@ const handlerUpdatePhoto = async (req, res) => {
     }
 
     user.profile_photo = req?.url?.origin + '/images/' + img_name
-    user.updated_at = new Date();
+    user.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:');
     user.save();
 
     // Send response 
@@ -168,7 +165,7 @@ const handlerUpdateUser = async (req, res) => {
     if (phone) user.phone = phone
     if (address) user.address = address
 
-    user.updated_at = new Date();
+    user.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:');
     user.save()
 
     return res.response(RES_TYPES[200](user)).code(200);
@@ -233,9 +230,9 @@ const routes = [
         options: {
             payload: {
                 output: 'stream',
-                parse: false,
-                allow: 'multipart/form-data',
-                maxBytes: 1 * 1024 * 1024
+                parse: true,
+                multipart: true,
+                maxBytes: 3 * 1024 * 1024,
             }
         }
     }

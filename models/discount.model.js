@@ -24,10 +24,10 @@ const Discount = db.define('tbl_discounts', {
         defaultValue: false
     },
     date_valid: {
-        type: DataTypes.DATE
+        type: DataTypes.STRING
     },
     valid_until: {
-        type: DataTypes.DATE
+        type: DataTypes.STRING
     },
     multiplication: {
         type: DataTypes.INTEGER
@@ -53,13 +53,13 @@ const Discount = db.define('tbl_discounts', {
     },
     created_at: {
         allowNull: false,
-        type: DataTypes.DATE,
-        defaultValue: DataTypes.NOW
+        type: DataTypes.STRING,
+        defaultValue: (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
     },
     updated_at: {
         allowNull: false,
-        type: DataTypes.DATE,
-        defaultValue: DataTypes.NOW
+        type: DataTypes.STRING,
+        defaultValue: (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
     }
 }, { timestamps: false });
 

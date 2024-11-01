@@ -1,7 +1,7 @@
 const Models = require('../../models')
 const { base_path } = require('./api.config');
 const { RES_TYPES, FETCH_REQUEST_TYPES } = require('../../types');
-const { ImageUploader, generateRandomString } = require('../../utils');
+const { generateRandomString, Uploader } = require('../../utils');
 const Path = require('path');
 const fs = require('fs');
 const { Op } = require('sequelize');
@@ -84,16 +84,21 @@ const handlerGetStaffByStore = async (req, res) => {
             per_page = 15
         } = req.query
 
+        const filter = {
+            store_id: id,
+            [Op.or]: [
+                { code: { [Op.like]: `%${search_text}%` } },
+                { name: { [Op.like]: `%${search_text}%` } },
+                { email: { [Op.like]: `%${search_text}%` } },
+                { phone: { [Op.like]: `%${search_text}%` } }
+            ]
+        }
+
+        const totalPages = Math.ceil((await Models.Staff.count({ where: filter })) / parseInt(per_page))
+        const total = await Models.Staff.count({ where: filter })
+
         const staffs = await Models.Staff.findAll({
-            where: {
-                store_id: id,
-                [Op.or]: [
-                    { code: { [Op.like]: `%${search_text}%` } },
-                    { name: { [Op.like]: `%${search_text}%` } },
-                    { email: { [Op.like]: `%${search_text}%` } },
-                    { phone: { [Op.like]: `%${search_text}%` } }
-                ]
-            },
+            where: filter,
             order: [[order_by, order_type]],
             offset: (parseInt(page) - 1) * parseInt(per_page),
             limit: parseInt(per_page)
@@ -101,7 +106,12 @@ const handlerGetStaffByStore = async (req, res) => {
 
         if (!staffs) return res.response(RES_TYPES[400]('Staff tidak ditemukan!')).code(400);
 
-        return res.response(RES_TYPES[200](staffs)).code(200);
+        return res.response(RES_TYPES[200]({
+            staffs,
+            total,
+            total_page: totalPages,
+            current_page: parseInt(page)
+        })).code(200);
     } catch (error) {
         return res.response(RES_TYPES[500](error.message)).code(500);
     }
@@ -109,50 +119,59 @@ const handlerGetStaffByStore = async (req, res) => {
 
 const handlerCreateStaff = async (req, res) => {
 
-    const {
-        store_id,
-        name,
-        email,
-        phone,
-        address,
-        date_joined,
-        salary,
-        pos_passcode,
-        is_cashier
-    } = req.payload || {}
+    try {
+        const {
+            store_id,
+            name,
+            email,
+            phone,
+            address,
+            date_joined,
+            salary,
+            pos_passcode,
+            is_cashier
+        } = req.payload || {}
+    
+        if (!store_id || !name || !email || !phone || !address || !date_joined || !salary) return res.response(RES_TYPES[400]('Data tidak lengkap!')).code(400);
+    
+        const store = await Models.Store.findOne({ where: { id: store_id } })
+    
+        if (!store) return res.response(RES_TYPES[400]('Toko tidak ditemukan!')).code(400);
+        if (store.owner_id != req.auth.credentials?.user?.id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
 
-    if (!store_id || !name || !email || !phone || !address || !date_joined || !salary || !is_cashier) return res.response(RES_TYPES[400]('Data tidak lengkap!')).code(400);
-
-    const store = await Models.Store.findOne({ where: { id: store_id } })
-
-    if (!store) return res.response(RES_TYPES[400]('Toko tidak ditemukan!')).code(400);
-    if (store.owner_id != req.auth.credentials?.user?.id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
-
-    const newStaff = {
-        code: `ST${((new Date()).getFullYear()).toString().slice(-2)}${generateRandomString(4, true, false, false)}`,
-        store_id,
-        name,
-        email,
-        phone,
-        address,
-        date_joined,
-        salary,
-        is_cashier
+        const existingStaff = await Models.Staff.findOne({ where: { email } })
+    
+        if (existingStaff) return res.response(RES_TYPES[400]('Email sudah terdaftar!')).code(400);
+    
+        const newStaff = {
+            code: `ST${((new Date()).getFullYear()).toString().slice(-2)}${generateRandomString(4, true, false, false)}`,
+            store_id,
+            name,
+            email,
+            phone,
+            address,
+            date_joined,
+            salary,
+            is_cashier: typeof is_cashier == 'number' ? is_cashier == 1 : is_cashier 
+        }
+    
+        if (is_cashier) newStaff.pos_passcode = pos_passcode
+    
+        const staff = await Models.Staff.create(newStaff)
+    
+        if (!staff) return res.response(RES_TYPES[400]('Staff gagal dibuat!')).code(400);
+    
+        await Models.Notification.create({
+            title: 'Staff Baru',
+            message: `${staff.name} baru saja ditambahkan sebagai staff`,
+            store_id: staff.store_id
+        })
+    
+        return res.response(RES_TYPES[200](staff)).code(200);
+    } catch (error) {
+        console.log(error)
+        return res.response(RES_TYPES[500](error.message)).code(500);
     }
-
-    if (is_cashier) newStaff.pos_passcode = pos_passcode
-
-    const staff = await Models.Staff.create(newStaff)
-
-    if (!staff) return res.response(RES_TYPES[400]('Staff gagal dibuat!')).code(400);
-
-    await Models.Notification.create({
-        title: 'Staff Baru',
-        message: `${staff.name} baru saja ditambahkan sebagai staff`,
-        store_id: staff.store_id
-    })
-
-    return res.response(RES_TYPES[200](staff)).code(200);
 }
 
 const handlerUpdatePhoto = async (req, res) => {
@@ -167,13 +186,7 @@ const handlerUpdatePhoto = async (req, res) => {
     if (!store) return res.response(RES_TYPES[400]('Toko tidak ditemukan!')).code(400);
     if (store.owner_id != req.auth.credentials?.user?.id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
 
-    const img_name = await new Promise((resolve, reject) => {
-        const uploadSingle = ImageUploader.single('file');
-        uploadSingle(req.raw.req, req.raw.res, (err) => {
-            if (err) reject(err);
-            resolve(req.payload.file ? req.payload.file.filename : null);
-        });
-    });
+    const img_name = await Uploader(req.payload?.file)
 
     if (!img_name) return res.response(RES_TYPES[400]('Gagal mengupload gambar!')).code(400);
 
@@ -186,7 +199,7 @@ const handlerUpdatePhoto = async (req, res) => {
     staff.profile_photo = req?.url?.origin + '/images/' + img_name
     
     try {
-        staff.updated_at = new Date()
+        staff.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
         await staff.save()
     } catch (error) {
         return res.response(RES_TYPES[400](error)).code(400);
@@ -214,12 +227,12 @@ const handlerUpdateStaff = async (req, res) => {
     if (phone) staff.phone = phone
     if (address) staff.address = address
     if (date_joined) staff.date_joined = date_joined
-    if (status) staff.status = status
+    if (status !== undefined) staff.status = status
     if (salary) staff.salary = salary
     if (pos_passcode) staff.pos_passcode = pos_passcode
-    if (is_cashier) staff.is_cashier = is_cashier
+    if (is_cashier !== undefined) staff.is_cashier = typeof is_cashier == 'number' ? is_cashier == 1 : is_cashier
 
-    staff.updated_at = new Date()
+    staff.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
     await staff.save()
 
     return res.response(RES_TYPES[200](staff), 'Staff berhasil diperbarui').code(200);
@@ -276,9 +289,9 @@ const routes = [
         options: {
             payload: {
                 output: 'stream',
-                parse: false,
-                allow: 'multipart/form-data',
-                maxBytes: 1 * 1024 * 1024
+                parse: true,
+                multipart: true,
+                maxBytes: 3 * 1024 * 1024
             }
         }
     },

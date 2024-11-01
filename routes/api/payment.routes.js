@@ -16,7 +16,7 @@ const handlerGetPaymentType = async (req, res) => {
     const id = req.params.id
     const paymentType = await Models.PaymentType.findOne({ where: { id } })
 
-    if (!paymentType) return res.response(RES_TYPES[404]("Payment type not found")).code(404);
+    if (!paymentType) return res.response(RES_TYPES[404]("Tipe pembayaran tidak ditemukan!")).code(404);
 
     return res.response(RES_TYPES[200](paymentType?.toJSON())).code(200);
 }
@@ -32,7 +32,7 @@ const handlerGetAllPayment = async (req, res) => {
     const id = req.params.id
     const payment = await Models.Payment.findOne({ where: { id } })
 
-    if (!payment) return res.response(RES_TYPES[404]("Payment not found")).code(404);
+    if (!payment) return res.response(RES_TYPES[404]("Pembayaran tidak ditemukan!")).code(404);
 
     return res.response(RES_TYPES[200](payment?.toJSON())).code(200);
 }

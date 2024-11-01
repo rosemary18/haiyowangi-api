@@ -52,6 +52,10 @@ const handlerGetPacket = async (req, res) => {
                         as: 'variant'
                     }
                 ]
+            },
+            {
+                model: Models.Discount,
+                as: 'discounts'
             }
         ]
     })
@@ -83,6 +87,9 @@ const handlerGetPacketByStore = async (req, res) => {
         const ors = searchs.map(search => ({ name: { [Op.like]: `%${search}%` } }));
         filter[Op.or] = ors;
     }
+
+    const totalPages = Math.ceil(await Models.Packet.count({ where: filter }) / per_page)
+    const total = await Models.Packet.count({ where: filter })
     
     const packets = await Models.Packet.findAll({
         where: filter,
@@ -99,7 +106,11 @@ const handlerGetPacketByStore = async (req, res) => {
                         model: Models.Variant,
                         as: 'variant'
                     }
-                ]
+                ],
+            },
+            {
+                model: Models.Discount,
+                as: 'discounts'
             }
         ],
         order: [[order_by, order_type]],
@@ -109,7 +120,12 @@ const handlerGetPacketByStore = async (req, res) => {
 
     if (!packets) return res.response(RES_TYPES[400]('Paket tidak ditemukan!')).code(400);
     
-    return res.response(RES_TYPES[200](packets)).code(200);
+    return res.response(RES_TYPES[200]({
+        packets,
+        total,
+        total_page: totalPages,
+        current_page: parseInt(page),
+    })).code(200);
 }
 
 const handlerGetAllPacketItems = async (req, res) => {
@@ -259,7 +275,7 @@ const handlerUpdatePacket = async (req, res) => {
     if (price) packet.price = price
     if (is_published != undefined) packet.is_published = is_published
 
-    packet.updated_at = new Date();
+    packet.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:');
     
     try {
         await packet.save()
@@ -300,7 +316,7 @@ const handlerUpdatePacketItem = async (req, res) => {
 
     if (qty) packetItem.qty = qty
 
-    packetItem.updated_at = new Date();
+    packetItem.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:');
     
     try {
         await packetItem.save()

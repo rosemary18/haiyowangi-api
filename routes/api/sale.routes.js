@@ -1,7 +1,7 @@
 const Models = require('../../models')
 const { base_path } = require('./api.config');
 const { RES_TYPES, FETCH_REQUEST_TYPES } = require('../../types');
-const { ImageUploader } = require('../../utils');
+const { Uploader, ingredientTriggers } = require('../../utils');
 const { Op } = require('sequelize');
 const abs_path = base_path + "/sales"
 
@@ -70,10 +70,6 @@ const handlerGetSale = async (req, res) => {
                             include: {
                                 model: Models.Discount,
                                 as: 'discounts',
-                                where: {
-                                    valid_until: { [Op.gte]: new Date() },
-                                    date_valid: { [Op.lte]: new Date() }
-                                }
                             },
                         },
                         {
@@ -82,10 +78,6 @@ const handlerGetSale = async (req, res) => {
                             include: {
                                 model: Models.Discount,
                                 as: 'discounts',
-                                where: {
-                                    valid_until: { [Op.gte]: new Date() },
-                                    date_valid: { [Op.lte]: new Date() }
-                                }
                             },
                         },
                         {
@@ -94,17 +86,19 @@ const handlerGetSale = async (req, res) => {
                             include: {
                                 model: Models.Discount,
                                 as: 'discounts',
-                                where: {
-                                    valid_until: { [Op.gte]: new Date() },
-                                    date_valid: { [Op.lte]: new Date() }
-                                }
                             },
                         }
                     ],
                 },
                 {
                     model: Models.Invoice,
-                    as: 'invoice'
+                    as: 'invoice',
+                    include: [
+                        {
+                            model: Models.Payment,
+                            as: 'payment'
+                        }
+                    ]
                 },
                 {
                     model: Models.Discount,
@@ -149,7 +143,9 @@ const handlerGetSaleByStore = async (req, res) => {
         order_by = 'id',
         order_type = 'DESC',
         page = 1,
-        per_page = 15
+        per_page = 15,
+        start_date = null,
+        end_date = null
     } = req.query
 
     const filter = { store_id: id }
@@ -159,9 +155,41 @@ const handlerGetSaleByStore = async (req, res) => {
             { code: { [Op.like]: `%${search_text}%` } },
         ]
     }
+    if (start_date || end_date) {
+        filter['created_at'] = {
+            [Op.between]: [ start_date, `${end_date} 23:59:59` ]
+        }
+    }
+
+    const totalPages = Math.ceil(await Models.Sale.count({ where: filter }) / parseInt(per_page))
+    const total = await Models.Sale.count({ where: filter })
 
     const sales = await Models.Sale.findAll({
         where: filter,
+        include: [
+            {
+                model: Models.Staff,
+                as: 'staff'
+            },
+            {
+                model: Models.SaleItem,
+                as: 'items',
+                include: [
+                    {
+                        model: Models.Product,
+                        as: 'product'
+                    },
+                    {
+                        model: Models.Variant,
+                        as: 'variant'
+                    },
+                    {
+                        model: Models.Packet,
+                        as: 'packet'
+                    }
+                ]
+            },
+        ],
         order: [[order_by, order_type]],
         offset: (parseInt(page) - 1) * parseInt(per_page),
         limit: parseInt(per_page)
@@ -169,13 +197,19 @@ const handlerGetSaleByStore = async (req, res) => {
 
     if (!sales) return res.response(RES_TYPES[400]('Penjualan tidak ditemukan!')).code(400);
 
-    return res.response(RES_TYPES[200](sales)).code(200);
+    return res.response(RES_TYPES[200]({
+        sales,
+        total,
+        total_page: totalPages,
+        current_page: parseInt(page)
+    })).code(200);
 }
 
 const handlerCreateSale = async (req, res) => {
 
     const { store_id } = req.payload || {}
 
+    
     if (!store_id) return res.response(RES_TYPES[400]('Mohon lengkapi data terlebih dahulu!')).code(400);
 
     const store = await Models.Store.findOne({ where: { id: store_id } })
@@ -192,7 +226,25 @@ const handlerCreateSale = async (req, res) => {
 
     if (!sale) return res.response(RES_TYPES[400]('Gagal membuat penjualan!')).code(400);
 
-    return res.response(RES_TYPES[200](sale, `Penjualan baru telah dibuat!`)).code(200);
+    const _sale = await Models.Sale.findOne({
+        where: { id: sale.id },
+        include: [
+            {
+                model: Models.SaleItem,
+                as: 'items',
+            },
+            {
+                model: Models.Discount,
+                as: 'discount'
+            },
+            {
+                model: Models.Store,
+                as: 'store'
+            },
+        ]
+    })
+
+    return res.response(RES_TYPES[200](_sale, `Penjualan baru telah dibuat!`)).code(200);
 }
 
 const handlerUpdateSale = async (req, res) => {
@@ -201,16 +253,17 @@ const handlerUpdateSale = async (req, res) => {
     const { 
         items,
         deleteItems,
+        deleteDiscount,
         discount_id,
         status,
         payment_type_id
     } = req.payload || {}
 
-    if (!items && !deleteItems && !discount_id && !status && !payment_type_id) return res.response(RES_TYPES[400]('Mohon lengkapi data terlebih dahulu!')).code(400);
+    if (!items && !deleteItems && !discount_id && !status && !payment_type_id && !deleteDiscount) return res.response(RES_TYPES[400]('Mohon lengkapi data terlebih dahulu!')).code(400);
 
     // Items: [{ product_id || variant_id || packet_id, qty }]
 
-    const sale = await Models.Sale.findOne({
+    let sale = await Models.Sale.findOne({
         where: { id },
         include: [
             {
@@ -247,6 +300,35 @@ const handlerUpdateSale = async (req, res) => {
             if (!payment_type) return res.response(RES_TYPES[400](`Metode pembayaran tidak ditemukan!`)).code(400);
             sale.payment_type_id = payment_type_id
         }
+
+        if (deleteItems) {
+            for (const item_id of deleteItems) {
+                await Models.SaleItem.destroy({ where: { id: item_id } })
+            }
+        }
+
+        if (deleteDiscount) {
+            sale.discount_id = null
+        }
+
+        await sale.save()
+        sale = await Models.Sale.findOne({
+            where: { id },
+            include: [
+                {
+                    model: Models.SaleItem,
+                    as: 'items'
+                },
+                {
+                    model: Models.Discount,
+                    as: 'discount'
+                },
+                {
+                    model: Models.Store,
+                    as: 'store'
+                },
+            ]
+        })
 
         if (items) {
             for (const item of items) {
@@ -326,12 +408,6 @@ const handlerUpdateSale = async (req, res) => {
             }
         }
 
-        if (deleteItems) {
-            for (const item_id of deleteItems) {
-                await Models.SaleItem.destroy({ where: { id: item_id } })
-            }
-        }
-
         if (discount_id) {
             const discount = await Models.Discount.findOne({ where: { id: discount_id } })
             let allQty = 0
@@ -352,6 +428,7 @@ const handlerUpdateSale = async (req, res) => {
             sale.discount_id = discount_id
         }
         
+        sale.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:');
         await sale.save();
 
         const updatedSale = await Models.Sale.findOne({
@@ -367,10 +444,6 @@ const handlerUpdateSale = async (req, res) => {
                             include: {
                                 model: Models.Discount,
                                 as: 'discounts',
-                                where: {
-                                    valid_until: { [Op.gte]: new Date() },
-                                    date_valid: { [Op.lte]: new Date() }
-                                }
                             },
                         },
                         {
@@ -379,10 +452,6 @@ const handlerUpdateSale = async (req, res) => {
                             include: {
                                 model: Models.Discount,
                                 as: 'discounts',
-                                where: {
-                                    valid_until: { [Op.gte]: new Date() },
-                                    date_valid: { [Op.lte]: new Date() }
-                                }
                             },
                         },
                         {
@@ -391,10 +460,6 @@ const handlerUpdateSale = async (req, res) => {
                             include: {
                                 model: Models.Discount,
                                 as: 'discounts',
-                                where: {
-                                    valid_until: { [Op.gte]: new Date() },
-                                    date_valid: { [Op.lte]: new Date() }
-                                }
                             },
                         }
                     ],
@@ -431,22 +496,28 @@ const handlerUpdateSale = async (req, res) => {
                             for (let j = 0; j < updatedSale.items[i]?.product?.discounts?.length; j++) {
                                 const disc = updatedSale.items[i]?.product?.discounts[j]
                                 if (
-                                    !(disc.min_items_qty > 0 && (disc.min_items_qty > updatedSale.items[i]?.qty)) &&
-                                    !(disc.max_items_qty > 0 && (disc.max_items_qty < updatedSale.items[i]?.qty))
+                                    ((new Date(disc?.date_valid)).getTime() <= Date.now()) && 
+                                    ((new Date(disc?.valid_until)).getTime() >= Date.now())
                                 ) {
-                                    let multiply = disc.multiplication > 0 ? Math.floor(updatedSale.items[i]?.qty/(disc.multiplication || 0)) : 1 
-                                    let itemPrices = (updatedSale.items[i]?.product?.price || 0)
-                                    if (!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) itemPrices = itemPrices * updatedSale.items[i]?.qty
-                                    if (disc.max_items_qty > 0) itemPrices = itemPrices * disc.max_items_qty
-
-                                    if (disc.is_percentage) {
-                                        if (disc.multiplication > 0) {
-                                            discount += ((updatedSale.items[i]?.product?.price || 0) * (disc.percentage / 100)) * multiply
-                                        } else discount += itemPrices * (disc.percentage / 100)
-                                    } else {
-                                        if (!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) discount += disc.nominal*updatedSale.items[i]?.qty
-                                        else discount += disc.nominal*multiply
-                                    } 
+                                    if (
+                                        !(disc.min_items_qty > 0 && (disc.min_items_qty > updatedSale.items[i]?.qty)) &&
+                                        !(disc.max_items_qty > 0 && (disc.max_items_qty < updatedSale.items[i]?.qty))
+                                    ) {
+                                        let multiply = disc.multiplication > 0 ? Math.floor(updatedSale.items[i]?.qty/(disc.multiplication || 0)) : 1 
+                                        let itemPrices = (updatedSale.items[i]?.product?.price || 0)
+    
+                                        if ((!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) || (disc.min_items_qty <= updatedSale.items[i]?.qty)) itemPrices = itemPrices * updatedSale.items[i]?.qty
+                                        if (disc.max_items_qty > 0) itemPrices = itemPrices * disc.max_items_qty
+    
+                                        if (disc.is_percentage) {
+                                            if (disc.multiplication > 0) {
+                                                discount += ((updatedSale.items[i]?.product?.price || 0) * (disc.percentage / 100)) * multiply
+                                            } else discount += itemPrices * (disc.percentage / 100)
+                                        } else {
+                                            if (!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) discount += disc.nominal*updatedSale.items[i]?.qty
+                                            else discount += disc.nominal*multiply
+                                        } 
+                                    }
                                 }
                             }
                         }
@@ -457,31 +528,27 @@ const handlerUpdateSale = async (req, res) => {
                             for (let j = 0; j < updatedSale.items[i]?.variant?.discounts?.length; j++) {
                                 const disc = updatedSale.items[i]?.variant?.discounts[j]
                                 if (
-                                    !(disc.min_items_qty > 0 && (disc.min_items_qty > updatedSale.items[i]?.qty)) &&
-                                    !(disc.max_items_qty > 0 && (disc.max_items_qty < updatedSale.items[i]?.qty))
+                                    ((new Date(disc?.date_valid)).getTime() <= Date.now()) && 
+                                    ((new Date(disc?.valid_until)).getTime() >= Date.now())
                                 ) {
-                                    let multiply = disc.multiplication > 0 ? Math.floor(updatedSale.items[i]?.qty/(disc.multiplication || 0)) : 1 
-                                    let itemPrices = (updatedSale.items[i]?.variant?.price || 0)
-                                    if (!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) itemPrices = itemPrices * updatedSale.items[i]?.qty
-                                    if (disc.max_items_qty > 0) itemPrices = itemPrices * disc.max_items_qty
-                                    
-                                    if (disc.is_percentage) {
-                                        if (disc.multiplication > 0) {
-                                            discount += ((updatedSale.items[i]?.variant?.price || 0) * (disc.percentage / 100)) * multiply
-                                        } else discount += itemPrices * (disc.percentage / 100)
-                                    } else {
-                                        console.log(Math.max(Math.floor(updatedSale.items[i]?.qty/(disc.multiplication || 0)), 1) )
-                                        console.log(updatedSale.items[i]?.qty)
-                                        console.log((disc.multiplication || 0))
-                                        console.log((updatedSale.items[i]?.qty/(disc.multiplication || 0)))
-                                        console.log(3/0)
-                                        console.log(discount)
-                                        console.log(disc.nominal)
-                                        console.log(multiply)
-                                        console.log(discount += disc.nominal*multiply)
-                                        if (!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) discount += disc.nominal*updatedSale.items[i]?.qty
-                                        else discount += disc.nominal*multiply
-                                    } 
+                                    if (
+                                        !(disc.min_items_qty > 0 && (disc.min_items_qty > updatedSale.items[i]?.qty)) &&
+                                        !(disc.max_items_qty > 0 && (disc.max_items_qty < updatedSale.items[i]?.qty))
+                                    ) {
+                                        let multiply = disc.multiplication > 0 ? Math.floor(updatedSale.items[i]?.qty/(disc.multiplication || 0)) : 1 
+                                        let itemPrices = (updatedSale.items[i]?.variant?.price || 0)
+                                        if ((!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) || (disc.min_items_qty <= updatedSale.items[i]?.qty)) itemPrices = itemPrices * updatedSale.items[i]?.qty
+                                        if (disc.max_items_qty > 0) itemPrices = itemPrices * disc.max_items_qty
+                                        
+                                        if (disc.is_percentage) {
+                                            if (disc.multiplication > 0) {
+                                                discount += ((updatedSale.items[i]?.variant?.price || 0) * (disc.percentage / 100)) * multiply
+                                            } else discount += itemPrices * (disc.percentage / 100)
+                                        } else {
+                                            if (!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) discount += disc.nominal*updatedSale.items[i]?.qty
+                                            else discount += disc.nominal*multiply
+                                        } 
+                                    }
                                 }
                             }
                         }
@@ -492,21 +559,26 @@ const handlerUpdateSale = async (req, res) => {
                             for (let j = 0; j < updatedSale.items[i]?.packet?.discounts?.length; j++) {
                                 const disc = updatedSale.items[i]?.packet?.discounts[j]
                                 if (
-                                    !(disc.min_items_qty > 0 && (disc.min_items_qty > updatedSale.items[i]?.qty)) &&
-                                    !(disc.max_items_qty > 0 && (disc.max_items_qty < updatedSale.items[i]?.qty))
+                                    ((new Date(disc?.date_valid)).getTime() <= Date.now()) && 
+                                    ((new Date(disc?.valid_until)).getTime() >= Date.now())
                                 ) {
-                                    let multiply = disc.multiplication > 0 ? Math.floor(updatedSale.items[i]?.qty/(disc.multiplication || 0)) : 1 
-                                    let itemPrices = (updatedSale.items[i]?.packet?.price || 0)
-                                    if (!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) itemPrices = itemPrices * updatedSale.items[i]?.qty
-                                    if (disc.max_items_qty > 0) itemPrices = itemPrices * disc.max_items_qty
-                                    
-                                    if (disc.is_percentage) {
-                                        if (disc.multiplication > 0) {
-                                            discount += ((updatedSale.items[i]?.packet?.price || 0) * (disc.percentage / 100)) * multiply
-                                        } else discount += itemPrices * (disc.percentage / 100)
-                                    } else {
-                                        if (!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) discount += disc.nominal*updatedSale.items[i]?.qty
-                                        else discount += disc.nominal*multiply
+                                    if (
+                                        !(disc.min_items_qty > 0 && (disc.min_items_qty > updatedSale.items[i]?.qty)) &&
+                                        !(disc.max_items_qty > 0 && (disc.max_items_qty < updatedSale.items[i]?.qty))
+                                    ) {
+                                        let multiply = disc.multiplication > 0 ? Math.floor(updatedSale.items[i]?.qty/(disc.multiplication || 0)) : 1 
+                                        let itemPrices = (updatedSale.items[i]?.packet?.price || 0)
+                                        if ((!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) || (disc.min_items_qty <= updatedSale.items[i]?.qty)) itemPrices = itemPrices * updatedSale.items[i]?.qty
+                                        if (disc.max_items_qty > 0) itemPrices = itemPrices * disc.max_items_qty
+                                        
+                                        if (disc.is_percentage) {
+                                            if (disc.multiplication > 0) {
+                                                discount += ((updatedSale.items[i]?.packet?.price || 0) * (disc.percentage / 100)) * multiply
+                                            } else discount += itemPrices * (disc.percentage / 100)
+                                        } else {
+                                            if (!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) discount += disc.nominal*updatedSale.items[i]?.qty
+                                            else discount += disc.nominal*multiply
+                                        }
                                     }
                                 }
                             }
@@ -516,9 +588,13 @@ const handlerUpdateSale = async (req, res) => {
                 }
             }
 
-            if (updatedSale.discount_id) {
-                if (updatedSale.discount?.is_percentage) discount = sub_total * (updatedSale.discount?.percentage / 100)
-                else discount = updatedSale.discount?.nominal
+            if (
+                updatedSale.discount_id && 
+                ((new Date(updatedSale?.discount?.date_valid)).getTime() <= Date.now()) && 
+                ((new Date(updatedSale?.discount?.valid_until)).getTime() >= Date.now())
+            ) {
+                if (updatedSale.discount?.is_percentage) discount += sub_total * (updatedSale.discount?.percentage / 100)
+                else discount += updatedSale.discount?.nominal
             }
 
             total = sub_total - discount
@@ -526,7 +602,7 @@ const handlerUpdateSale = async (req, res) => {
             invoice.sub_total = sub_total
             invoice.discount = discount
             invoice.total = total
-            invoice.updated_at = Date.now();
+            invoice.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:');
             await invoice.save();
             updatedSale.total = total
             await updatedSale.save()
@@ -540,27 +616,112 @@ const handlerUpdateSale = async (req, res) => {
             if (updatedSale.items?.length > 0) {
                 for (let i = 0; i < updatedSale.items?.length; i++) {
                     if (updatedSale.items[i].product_id) {
+                        if (updatedSale.items[i]?.product?.discounts?.length > 0) {
+                            for (let j = 0; j < updatedSale.items[i]?.product?.discounts?.length; j++) {
+                                const disc = updatedSale.items[i]?.product?.discounts[j]
+                                if (
+                                    ((new Date(disc?.date_valid)).getTime() <= Date.now()) && 
+                                    ((new Date(disc?.valid_until)).getTime() >= Date.now())
+                                ) {
+                                    if (
+                                        !(disc.min_items_qty > 0 && (disc.min_items_qty > updatedSale.items[i]?.qty)) &&
+                                        !(disc.max_items_qty > 0 && (disc.max_items_qty < updatedSale.items[i]?.qty))
+                                    ) {
+                                        let multiply = disc.multiplication > 0 ? Math.floor(updatedSale.items[i]?.qty/(disc.multiplication || 0)) : 1 
+                                        let itemPrices = (updatedSale.items[i]?.product?.price || 0)
+    
+                                        if ((!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) || (disc.min_items_qty <= updatedSale.items[i]?.qty)) itemPrices = itemPrices * updatedSale.items[i]?.qty
+                                        if (disc.max_items_qty > 0) itemPrices = itemPrices * disc.max_items_qty
+    
+                                        if (disc.is_percentage) {
+                                            if (disc.multiplication > 0) {
+                                                discount += ((updatedSale.items[i]?.product?.price || 0) * (disc.percentage / 100)) * multiply
+                                            } else discount += itemPrices * (disc.percentage / 100)
+                                        } else {
+                                            if (!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) discount += disc.nominal*updatedSale.items[i]?.qty
+                                            else discount += disc.nominal*multiply
+                                        } 
+                                    }
+                                }
+                            }
+                        }
                         sub_total += (updatedSale.items[i]?.product?.price || 0) * updatedSale.items[i].qty
                     }
                     if (updatedSale.items[i].variant_id) {
+                        if (updatedSale.items[i]?.variant?.discounts?.length > 0) {
+                            for (let j = 0; j < updatedSale.items[i]?.variant?.discounts?.length; j++) {
+                                const disc = updatedSale.items[i]?.variant?.discounts[j]
+                                if (
+                                    ((new Date(disc?.date_valid)).getTime() <= Date.now()) && 
+                                    ((new Date(disc?.valid_until)).getTime() >= Date.now())
+                                ) {
+                                    if (
+                                        !(disc.min_items_qty > 0 && (disc.min_items_qty > updatedSale.items[i]?.qty)) &&
+                                        !(disc.max_items_qty > 0 && (disc.max_items_qty < updatedSale.items[i]?.qty))
+                                    ) {
+                                        let multiply = disc.multiplication > 0 ? Math.floor(updatedSale.items[i]?.qty/(disc.multiplication || 0)) : 1 
+                                        let itemPrices = (updatedSale.items[i]?.variant?.price || 0)
+                                        if ((!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) || (disc.min_items_qty <= updatedSale.items[i]?.qty)) itemPrices = itemPrices * updatedSale.items[i]?.qty
+                                        if (disc.max_items_qty > 0) itemPrices = itemPrices * disc.max_items_qty
+                                        
+                                        if (disc.is_percentage) {
+                                            if (disc.multiplication > 0) {
+                                                discount += ((updatedSale.items[i]?.variant?.price || 0) * (disc.percentage / 100)) * multiply
+                                            } else discount += itemPrices * (disc.percentage / 100)
+                                        } else {
+                                            if (!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) discount += disc.nominal*updatedSale.items[i]?.qty
+                                            else discount += disc.nominal*multiply
+                                        } 
+                                    }
+                                }
+                            }
+                        }
                         sub_total += (updatedSale.items[i]?.variant?.price || 0) * updatedSale.items[i].qty
                     }
                     if (updatedSale.items[i].packet_id) {
+                        if (updatedSale.items[i]?.packet?.discounts?.length > 0) {
+                            for (let j = 0; j < updatedSale.items[i]?.packet?.discounts?.length; j++) {
+                                const disc = updatedSale.items[i]?.packet?.discounts[j]
+                                if (
+                                    ((new Date(disc?.date_valid)).getTime() <= Date.now()) && 
+                                    ((new Date(disc?.valid_until)).getTime() >= Date.now())
+                                ) {
+                                    if (
+                                        !(disc.min_items_qty > 0 && (disc.min_items_qty > updatedSale.items[i]?.qty)) &&
+                                        !(disc.max_items_qty > 0 && (disc.max_items_qty < updatedSale.items[i]?.qty))
+                                    ) {
+                                        let multiply = disc.multiplication > 0 ? Math.floor(updatedSale.items[i]?.qty/(disc.multiplication || 0)) : 1 
+                                        let itemPrices = (updatedSale.items[i]?.packet?.price || 0)
+                                        if ((!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) || (disc.min_items_qty <= updatedSale.items[i]?.qty)) itemPrices = itemPrices * updatedSale.items[i]?.qty
+                                        if (disc.max_items_qty > 0) itemPrices = itemPrices * disc.max_items_qty
+                                        
+                                        if (disc.is_percentage) {
+                                            if (disc.multiplication > 0) {
+                                                discount += ((updatedSale.items[i]?.packet?.price || 0) * (disc.percentage / 100)) * multiply
+                                            } else discount += itemPrices * (disc.percentage / 100)
+                                        } else {
+                                            if (!(disc.min_items_qty > 0) && !(disc.max_items_qty > 0)) discount += disc.nominal*updatedSale.items[i]?.qty
+                                            else discount += disc.nominal*multiply
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         sub_total += (updatedSale.items[i]?.packet?.price || 0) * updatedSale.items[i].qty
                     }
                 }
-                total = sub_total
             }
 
-            if (updatedSale.discount_id) {
-                if (updatedSale.discount?.is_percentage) {
-                    discount = sub_total * (updatedSale.discount?.percentage / 100)
-                    total = sub_total - discount
-                } else {
-                    discount = updatedSale.discount?.nominal
-                    total = sub_total - discount
-                }
+            if (
+                updatedSale.discount_id && 
+                ((new Date(updatedSale?.discount?.date_valid)).getTime() <= Date.now()) && 
+                ((new Date(updatedSale?.discount?.valid_until)).getTime() >= Date.now())
+            ) {
+                if (updatedSale.discount?.is_percentage) discount += sub_total * (updatedSale.discount?.percentage / 100)
+                else discount += updatedSale.discount?.nominal
             }
+
+            total = sub_total - discount
 
             const newInvoice = {
                 code: `INV${Date.now()}`,
@@ -583,14 +744,8 @@ const handlerUpdateSale = async (req, res) => {
 }
 
 const handlerCreatePayment = async (req, res) => {
-
-    const img_name = await new Promise((resolve, reject) => {
-        const singleUpload = ImageUploader.single('img');
-        singleUpload(req.raw.req, req.raw.res, (err) => {
-            if (err) reject(err);
-            resolve(req.payload.file ? req.payload.file.filename : null);
-        });
-    });
+    
+    const img_name = await Uploader(req.payload?.img)
     
     const {
         sales_id,
@@ -600,41 +755,121 @@ const handlerCreatePayment = async (req, res) => {
         receiver_account_bank,
         receiver_account_number,
         nominal
-    } = req.payload?.body || {}
+    } = req.payload || {}
 
     if (!sales_id) return res.response(RES_TYPES[400]('Penjualan harus diisi!')).code(400);
 
-    const sale = await Models.Sale.findOne({
-        where: { id: sales_id },
-        include: [
-            {
-                model: Models.Store,
-                as: 'store'
-            },
-            {
-                model: Models.Invoice,
-                as: 'invoice',
-            },
-            {
-                model: Models.PaymentType,
-                as: 'payment_type'
-            },
-            {
-                model: Models.SaleItem,
-                as: 'items'
-            }
-        ]
-    })
-
-    if (!sale) return res.response(RES_TYPES[400]('Penjualan tidak ditemukan!')).code(400);
-    if (sale.store.owner_id != req.auth.credentials?.user?.id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
-    if (sale.items?.length == 0) return res.response(RES_TYPES[400]('Penjualan ini belum memiliki item!')).code(400);
-    if (!sale.invoice) return res.response(RES_TYPES[400]('Invoice tidak ditemukan!')).code(400);
-    if (sale.status == 1) return res.response(RES_TYPES[400]('Penjualan ini sudah lunas!')).code(400);
-
-    const invoice = await Models.Invoice.findOne({ where: { id: sale.invoice.id } })
-
+    
     try {
+
+        const sale = await Models.Sale.findOne({
+            where: { id: sales_id },
+            include: [
+                {
+                    model: Models.Store,
+                    as: 'store'
+                },
+                {
+                    model: Models.Invoice,
+                    as: 'invoice',
+                },
+                {
+                    model: Models.PaymentType,
+                    as: 'payment_type'
+                },
+                {
+                    model: Models.SaleItem,
+                    as: 'items',
+                    include: [
+                        {
+                            model: Models.Product,
+                            as: 'product',
+                            include: [
+                                {
+                                    model: Models.IngredientItem,
+                                    as: 'ingredients',
+                                    include: [
+                                        {
+                                            model: Models.Ingredient,
+                                            as: 'ingredient',
+                                        },
+                                    ]
+                                },
+                            ]
+                        },
+                        {
+                            model: Models.Variant,
+                            as: 'variant',
+                            include: [
+                                {
+                                    model: Models.IngredientItem,
+                                    as: 'ingredients',
+                                    include: [
+                                        {
+                                            model: Models.Ingredient,
+                                            as: 'ingredient',
+                                        },
+                                    ]
+                                },
+                            ]
+                        },
+                        {
+                            model: Models.Packet,
+                            as: 'packet',
+                            include: [
+                                {
+                                    model: Models.PacketItem,
+                                    as: 'items',
+                                    include: [
+                                        {
+                                            model: Models.Product,
+                                            as: 'product',
+                                            include: [
+                                                {
+                                                    model: Models.IngredientItem,
+                                                    as: 'ingredients',
+                                                    include: [
+                                                        {
+                                                            model: Models.Ingredient,
+                                                            as: 'ingredient',
+                                                        },
+                                                    ]
+                                                },
+                                            ]
+                                        },
+                                        {
+                                            model: Models.Variant,
+                                            as: 'variant',
+                                            include: [
+                                                {
+                                                    model: Models.IngredientItem,
+                                                    as: 'ingredients',
+                                                    include: [
+                                                        {
+                                                            model: Models.Ingredient,
+                                                            as: 'ingredient',
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        },
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        })
+    
+        if (!sale) return res.response(RES_TYPES[400]('Penjualan tidak ditemukan!')).code(400);
+        if (sale.store.owner_id != req.auth.credentials?.user?.id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
+        if (sale.items?.length == 0) return res.response(RES_TYPES[400]('Penjualan ini belum memiliki item!')).code(400);
+        if (!sale.invoice) return res.response(RES_TYPES[400]('Invoice tidak ditemukan!')).code(400);
+        if (sale.status == 1) return res.response(RES_TYPES[400]('Penjualan ini sudah lunas!')).code(400);
+    
+        const invoice = await Models.Invoice.findOne({ where: { id: sale.invoice.id } })
+
         if (!sale.payment_type_id) return res.response(RES_TYPES[400]('Penjualan belum memiliki tipe pembayaran!')).code(400);
         if (sale.payment_type?.code == "BT") {
 
@@ -670,36 +905,97 @@ const handlerCreatePayment = async (req, res) => {
     
         await invoice.save();
         await sale.save();
+
+        if (sale.items?.length) {
+
+            const ingredientIds = []
+
+            for (const item of sale.items) {
+                if (item?.product_id != null) {
+                    if (item?.product?.ingredients?.length > 0) {
+                        for (const ingredient of item.product.ingredients) {
+                            ingredient.ingredient.qty = ingredient.ingredient.qty - (ingredient.qty * item.qty)
+                            await ingredient.ingredient.save();
+                            ingredientIds.push(ingredient.ingredient_id)
+                        }
+                    } else {
+                        item.product.qty = item.product.qty - item.qty
+                        await item.product.save();
+                    }
+                } else if (item?.variant_id != null) {
+                    if (item?.variant?.ingredients?.length > 0) {
+                        for (const ingredient of item.variant.ingredients) {
+                            ingredient.ingredient.qty = ingredient.ingredient.qty - (ingredient.qty * item.qty)
+                            await ingredient.ingredient.save();
+                            ingredientIds.push(ingredient.ingredient_id)
+                        }
+                    } else {
+                        item.variant.qty = item.variant.qty - item.qty
+                        await item.variant.save();
+                    }
+                } else if (item?.packet_id != null) {
+                    if (item?.packet?.items?.length > 0) {
+                        for (const packetItem of item.packet.items) {
+                            if (packetItem?.product_id != null) {
+                                if (packetItem?.product?.ingredients?.length > 0) {
+                                    for (const ingredient of packetItem.product.ingredients) {
+                                        ingredient.ingredient.qty = ingredient.ingredient.qty - (ingredient.qty * packetItem.qty)
+                                        await ingredient.ingredient.save();
+                                        ingredientIds.push(ingredient.ingredient_id)
+                                    }
+                                } else {
+                                    packetItem.product.qty = packetItem.product.qty - packetItem.qty
+                                    await packetItem.product.save();
+                                }
+                            } else if (packetItem?.variant_id != null) {
+                                if (packetItem?.variant?.ingredients?.length > 0) {
+                                    for (const ingredient of packetItem.variant.ingredients) {
+                                        ingredient.ingredient.qty = ingredient.ingredient.qty - (ingredient.qty * packetItem.qty)
+                                        await ingredient.ingredient.save();
+                                        ingredientIds.push(ingredient.ingredient_id)
+                                    }
+                                } else {
+                                    packetItem.variant.qty = packetItem.variant.qty - packetItem.qty
+                                    await packetItem.variant.save();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (ingredientIds.length > 0) ingredientTriggers(ingredientIds, sale.store_id)
+        }
+
+        const updatedSale = await Models.Sale.findOne({
+            where: { id: sales_id },
+            include: [
+                {
+                    model: Models.Store,
+                    as: 'store'
+                },
+                {
+                    model: Models.Invoice,
+                    as: 'invoice',
+                    include: [
+                        {
+                            model: Models.Payment,
+                            as: 'payment'
+                        }
+                    ]
+                },
+                {
+                    model: Models.PaymentType,
+                    as: 'payment_type'
+                }
+            ]
+        })
+
+        return res.response(RES_TYPES[200](updatedSale, `Penjualan ${sale.code} lunas`)).code(200);
     } catch (error) {
         console.log(error)
         return res.response(RES_TYPES[500](error)).code(500);
     }
-
-    const updatedSale = await Models.Sale.findOne({
-        where: { id: sales_id },
-        include: [
-            {
-                model: Models.Store,
-                as: 'store'
-            },
-            {
-                model: Models.Invoice,
-                as: 'invoice',
-                include: [
-                    {
-                        model: Models.Payment,
-                        as: 'payment'
-                    }
-                ]
-            },
-            {
-                model: Models.PaymentType,
-                as: 'payment_type'
-            }
-        ]
-    })
-
-    return res.response(RES_TYPES[200](updatedSale, `Penjualan ${sale.code} lunas`)).code(200);
 }
 
 const handlerDeleteSales = async (req, res) => {
@@ -782,9 +1078,9 @@ module.exports = [
         options: {
             payload: {
                 output: 'stream',
-                parse: false,
-                allow: 'multipart/form-data',
-                maxBytes: 1 * 1024 * 1024
+                parse: true,
+                multipart: true,
+                maxBytes: 3 * 1024 * 1024
             }
         }
     },

@@ -27,7 +27,7 @@ const Staff = db.define('tbl_staffs', {
         type: DataTypes.TEXT
     },
     date_joined: {
-        type: DataTypes.DATE
+        type: DataTypes.STRING
     },
     status: {
         type: DataTypes.INTEGER
@@ -48,13 +48,13 @@ const Staff = db.define('tbl_staffs', {
     },
     created_at: {
         allowNull: false,
-        type: DataTypes.DATE,
-        defaultValue: DataTypes.NOW
+        type: DataTypes.STRING,
+        defaultValue: (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
     },
     updated_at: {
         allowNull: false,
-        type: DataTypes.DATE,
-        defaultValue: DataTypes.NOW
+        type: DataTypes.STRING,
+        defaultValue: (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
     }
 }, { timestamps: false });
 

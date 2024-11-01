@@ -2,7 +2,7 @@ const Models = require('../../models')
 const { base_path } = require('./api.config');
 const { RES_TYPES, FETCH_REQUEST_TYPES } = require('../../types');
 const { Op } = require('sequelize');
-const { ImageUploader } = require('../../utils');
+const { Uploader } = require('../../utils');
 const Path = require('path');
 const fs = require('fs');
 const abs_path = base_path + "/variant"
@@ -69,7 +69,33 @@ const handlerGetVariant = async (req, res) => {
             },
             {
                 model: Models.VariantItem,
-                as: 'variants'
+                as: 'variants',
+                include: {
+                    model: Models.VariantTypeItem,
+                    as: 'variant_type_item'
+                }
+            },
+            {
+                model: Models.IngredientItem,
+                as: 'ingredients',
+                include: [
+                    {
+                        model: Models.Ingredient,
+                        as: 'ingredient',
+                        include: {
+                            model: Models.Unit,
+                            as: 'uom'
+                        }
+                    },
+                    {
+                        model: Models.Unit,
+                        as: 'uom'
+                    }
+                ]
+            },
+            {
+                model: Models.Discount,
+                as: 'discounts'
             }
         ]
     })
@@ -111,7 +137,29 @@ const handlerGetVariantsByStore = async (req, res) => {
             },
             {
                 model: Models.VariantItem,
-                as: 'variants'
+                as: 'variants',
+            },
+            {
+                model: Models.IngredientItem,
+                as: 'ingredients',
+                include: [
+                    {
+                        model: Models.Ingredient,
+                        as: 'ingredient',
+                        include: {
+                            model: Models.Unit,
+                            as: 'uom'
+                        }
+                    },
+                    {
+                        model: Models.Unit,
+                        as: 'uom'
+                    }
+                ]
+            },
+            {
+                model: Models.Discount,
+                as: 'discounts'
             }
         ],
         order: [[order_by, order_type]],
@@ -144,7 +192,7 @@ const handlerGetVariantByProduct = async (req, res) => {
 
     const id = req.params.id
     const variants = await Models.Variant.findAll({
-        where: { product_id: id, is_published: true },
+        where: { product_id: id },
         include: [
             {
                 model: Models.Unit,
@@ -290,7 +338,7 @@ const handlerCreateVariant = async (req, res) => {
         variant_type_item
     } = req.payload || {}
 
-    if (!product_id || !description || !qty || !price || !variant_type_item) return res.response(RES_TYPES[400]('Data tidak lengkap!')).code(400);
+    if (!product_id || !price || !variant_type_item) return res.response(RES_TYPES[400]('Data tidak lengkap!')).code(400);
     
     const product = await Models.Product.findOne({
         where: { id: product_id },
@@ -366,7 +414,7 @@ const handlerCreateVariant = async (req, res) => {
     if (!variant) return res.response(RES_TYPES[400]('Varian gagal ditambahkan!')).code(400);
 
     product.has_variants = true
-    product.updated_at = new Date()
+    product.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
     await product.save()
 
     // Create Variant Items
@@ -434,7 +482,7 @@ const handlerUpdateVariant = async (req, res) => {
         } else if (qty) variant.qty = qty
     } else if (qty) variant.qty = qty
 
-    variant.updated_at = new Date()
+    variant.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
     
     try {
         await variant.save()
@@ -487,13 +535,7 @@ const handlerUpdatePhotoVariant = async (req, res) => {
     if (!variant) return res.response(RES_TYPES[400]('Varian tidak ditemukan!')).code(400);
     if (variant.product.store.owner_id != req.auth.credentials?.user?.id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
     
-    const img_name = await new Promise((resolve, reject) => {
-        const uploadSingle = ImageUploader.single('file');
-        uploadSingle(req.raw.req, req.raw.res, (err) => {
-            if (err) reject(err);
-            resolve(req.payload.file ? req.payload.file.filename : null);
-        });
-    });
+    const img_name = await Uploader(req.payload?.file);
 
     if (!img_name) return res.response(RES_TYPES[400]('Gagal mengupload gambar!')).code(400);
 
@@ -506,7 +548,7 @@ const handlerUpdatePhotoVariant = async (req, res) => {
     variant.img = req?.url?.origin + '/images/' + img_name
     
     try {
-        variant.updated_at = new Date()
+        variant.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
         await variant.save()
     } catch (error) {
         return res.response(RES_TYPES[400](error)).code(400);
@@ -526,6 +568,10 @@ const handlerDeleteVariant = async (req, res) => {
                 as: 'variants'
             },
             {
+                model: Models.IngredientItem,
+                as: 'ingredients'
+            },
+            {
                 model: Models.Product,
                 as: 'product',
                 include: [
@@ -543,6 +589,9 @@ const handlerDeleteVariant = async (req, res) => {
 
     try {
         
+        // Delete all ingredient items
+        if (variant.ingredients.length > 0) await Models.IngredientItem.destroy({ where: { variant_id: variant.id } })
+
         await Models.VariantItem.destroy({ where: { variant_id: variant.id } })
         await Models.Variant.destroy({ where: { id } })
         const product = await Models.Product.findOne({
@@ -601,7 +650,7 @@ const handlerDeleteVariantTypeItem = async (req, res) => {
                     let newName = variant.name.split(' | ').filter(it => it != item.variant_type_item.name);
                     console.log(newName)
                     variant.name = newName.join(' | ')
-                    variant.updated_at = new Date()
+                    variant.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
                     await variant.save()
                 }
                 await Models.VariantItem.destroy({ where: { id: item.id } })
@@ -663,7 +712,7 @@ const handlerDeleteVariantType = async (req, res) => {
                         if (variant && variant.variants.length > 1) {
                             let newName = variant.name.split(' | ').filter(it => it != item.name);
                             variant.name = newName.join(' | ')
-                            variant.updated_at = new Date()
+                            variant.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
                             await variant.save()
                         }
                         await Models.VariantItem.destroy({ where: { id: _item.id } })
@@ -759,9 +808,9 @@ const routes = [
         options: {
             payload: {
                 output: 'stream',
-                parse: false,
-                allow: 'multipart/form-data',
-                maxBytes: 1 * 1024 * 1024
+                parse: true,
+                multipart: true,
+                maxBytes: 3 * 1024 * 1024
             }
         }
     },

@@ -87,7 +87,7 @@ const handlerGetExpense = async (req, res) => {
 
     if (!expense) return res.response(RES_TYPES[400]('Pengeluaran tidak ditemukan!')).code(400);
 
-    return res.response(RES_TYPES[200](income)).code(200);
+    return res.response(RES_TYPES[200](expense)).code(200);
 }
 
 const handlerGetExpenseByStore = async (req, res) => {
@@ -113,9 +113,9 @@ const handlerGetExpenseByStore = async (req, res) => {
     if (tag) filter['tag'] = tag
 
     if (start_date || end_date) {
-        filter['created_at'] = {}
-        if (start_date) filter['created_at'][Op.gte] = start_date
-        if (end_date) filter['created_at'][Op.lte] = end_date
+        filter['created_at'] = {
+            [Op.between]: [ start_date, `${end_date} 23:59:59` ]
+        }
     }
 
     if (search_text) {
@@ -126,6 +126,8 @@ const handlerGetExpenseByStore = async (req, res) => {
         ]
     }
 
+    const totalPages = Math.ceil((await Models.Expense.count({ where: filter })) / parseInt(per_page))
+
     const expenses = await Models.Expense.findAll({
         where: filter,
         order: [[order_by, order_type?.toUpperCase()]],
@@ -135,7 +137,11 @@ const handlerGetExpenseByStore = async (req, res) => {
 
     if (!expenses) return res.response(RES_TYPES[400]('Pengeluaran tidak ditemukan!')).code(400);
 
-    return res.response(RES_TYPES[200](expenses)).code(200);
+    return res.response(RES_TYPES[200]({
+        expenses,
+        current_page: parseInt(page),
+        total_page: totalPages
+    })).code(200);
 }
 
 const handlerCreateExpense = async (req, res) => {
@@ -145,7 +151,8 @@ const handlerCreateExpense = async (req, res) => {
         name,
         tag,
         description,
-        nominal
+        nominal,
+        date
     } = req.payload || {}
 
     if (!store_id) return res.response(RES_TYPES[400]('Toko harus diisi!')).code(400);
@@ -166,6 +173,8 @@ const handlerCreateExpense = async (req, res) => {
         nominal
     }
 
+    if (date) newExpense['created_at'] = (new Date(date)).toLocaleString('en-CA', { hour12: false }).replace(',', ' ').replace('24:00:00', '00:00:00')
+
     if (description) newExpense['description'] = description
     
     try {
@@ -180,7 +189,7 @@ const handlerCreateExpense = async (req, res) => {
 const handlerUpdateExpense = async (req, res) => {
 
     const id = req.params.id
-    const { name, tag, description, nominal } = req.payload || {}
+    const { name, tag, description, nominal, date } = req.payload || {}
 
     if (!name && !tag && !description && !nominal) return res.response(RES_TYPES[400]('Tidak ada yang diubah!')).code(400);
 
@@ -201,9 +210,10 @@ const handlerUpdateExpense = async (req, res) => {
     if (tag) expense.tag = tag
     if (description) expense.description = description
     if (nominal) expense.nominal = nominal
+    if (date) expense.created_at = date
 
     try {
-        expense.updated_at = new Date()
+        expense.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
         await expense.save()
     } catch (error) {
         return res.response(RES_TYPES[500](error.message)).code(500);

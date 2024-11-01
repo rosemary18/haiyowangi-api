@@ -1,5 +1,7 @@
 const { FETCH_REQUEST_TYPES, RES_TYPES } = require('../../types')
-const Path = require('path')
+const Path = require('path');
+const { base_path } = require('./api.config');
+const { Uploader } = require('../../utils');
 
 // Handlers
 
@@ -7,6 +9,20 @@ const handler404 = async (req, res) => {
 
     return res.response(RES_TYPES[404]({ message: 'You are lost!' })).code(404);
 } 
+
+const handlerUploadPhoto = async (req, res) => {
+
+    console.log("[FUCK]");
+    
+    const img_name = await Uploader(req.payload?.file)
+
+    if (!img_name) return res.response(RES_TYPES[400]('Gagal mengupload gambar!')).code(400);
+
+    let link = req?.url?.origin + '/images/' + img_name
+
+    return res.response(RES_TYPES[200](link, `Gambar berhasil di upload!`)).code(200);
+
+}
 
 // Routing
 
@@ -80,7 +96,22 @@ const routes = [
         options: {
             auth: false
         }
-    }
+    },
+
+    {
+        method: FETCH_REQUEST_TYPES.POST,
+        path: base_path + '/upload-photo',
+        handler: handlerUploadPhoto,
+        options: {
+            payload: {
+                output: 'stream',
+                parse: true,
+                multipart: true,
+                maxBytes: 3 * 1024 * 1024
+            },
+            auth: false
+        },
+    },
 ]
 
 module.exports = routes

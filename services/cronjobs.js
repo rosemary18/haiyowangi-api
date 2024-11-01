@@ -6,7 +6,7 @@ module.exports = async (app) => {
     // Check product qty
     cron.schedule('0 6,0 * * *', async () => {
         
-        // Running a job at 06:00 AM and 12:00 AM every da
+        // Running a job at 06:00 AM and 12:00 AM every day
 
         const warningProducts = Models.Product.findAll({
             where: {

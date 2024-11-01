@@ -11,7 +11,7 @@ const cronjobs = require('./cronjobs')
 // Hapi configurations
 const configHapi = {
     port: process.env.PORT || 9090,
-    host: process.env.HOST || "localhost",
+    host: process.env.HOST || "0.0.0.0",
     routes: {
         cors: { origin: ['*'] },
         files: {

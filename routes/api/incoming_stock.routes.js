@@ -2,6 +2,7 @@ const Models = require('../../models')
 const { base_path } = require('./api.config');
 const { RES_TYPES, FETCH_REQUEST_TYPES } = require('../../types');
 const { Op } = require('sequelize');
+const { ingredientTriggers } = require('../../utils');
 const abs_path = base_path + "/incoming-stock"
 
 // Handlers
@@ -71,6 +72,32 @@ const handlerGetIncomingStock = async (req, res) => {
             {
                 model: Models.IncomingStockItem,
                 as: 'incoming_stock_items',
+                include: [
+                    {
+                        model: Models.Product,
+                        as: 'product',
+                        include: {
+                            model: Models.Unit,
+                            as: 'uom'
+                        }
+                    },
+                    {
+                        model: Models.Variant,
+                        as: 'variant',
+                        include: {
+                            model: Models.Unit,
+                            as: 'uom'
+                        }
+                    },
+                    {
+                        model: Models.Ingredient,
+                        as: 'ingredient',
+                        include: {
+                            model: Models.Unit,
+                            as: 'uom'
+                        }
+                    },
+                ]
             }
         ]
     })
@@ -93,7 +120,9 @@ const handlerGetIncomingStockByStore = async (req, res) => {
         order_by = 'id',
         order_type = 'DESC',
         page = 1,
-        per_page = 15
+        per_page = 15,
+        start_date = null,
+        end_date = null
     } = req.query
 
     const filter = { store_id: id }
@@ -104,12 +133,31 @@ const handlerGetIncomingStockByStore = async (req, res) => {
         ]
     }
 
+    if (start_date || end_date) {
+        filter['created_at'] = {
+            [Op.between]: [ start_date, `${end_date} 23:59:59` ]
+        }
+    }
+
+    const totalPages = Math.ceil(await Models.IncomingStock.count({ where: filter }) / parseInt(per_page))
+    const total = await Models.IncomingStock.count({ where: filter })
+
     const incomingStocks = await Models.IncomingStock.findAll({
         where: filter,
         include: [
             {
                 model: Models.IncomingStockItem,
                 as: 'incoming_stock_items',
+                include: [
+                    {
+                        model: Models.Product,
+                        as: 'product',
+                    },
+                    {
+                        model: Models.Variant,
+                        as: 'variant',
+                    }
+                ]
             }
         ],
         order: [[order_by, order_type]],
@@ -119,7 +167,12 @@ const handlerGetIncomingStockByStore = async (req, res) => {
 
     if (!incomingStocks) return res.response(RES_TYPES[400](`Stok masuk di toko ${store.name} tidak ditemukan!`)).code(400);
 
-    return res.response(RES_TYPES[200](incomingStocks)).code(200);
+    return res.response(RES_TYPES[200]({
+        incomings_stock: incomingStocks,
+        total_page: totalPages,
+        current_page: parseInt(page),
+        total
+    })).code(200);
 }
 
 const handlerGetAllIncomingStockItems = async (req, res) => {
@@ -259,6 +312,7 @@ const handlerAddIncomingStockItem = async (req, res) => {
             }
             if (item?.product_id) newIncomingStockItem.product_id = item?.product_id
             if (item?.variant_id) newIncomingStockItem.variant_id = item?.variant_id
+            if (item?.ingredient_id) newIncomingStockItem.ingredient_id = item?.ingredient_id
             await Models.IncomingStockItem.create(newIncomingStockItem);
         }
     } catch (error) {
@@ -301,7 +355,7 @@ const handlerUpdateIncomingStockItem = async (req, res) => {
 
     try {
         incomingStockItem.qty = qty
-        incomingStock.updated_at = new Date()
+        incomingStock.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
         await incomingStockItem.save()
         await incomingStock.save()
     } catch (error) {
@@ -340,6 +394,10 @@ const handlerUpdateIncomingStock = async (req, res) => {
                     {
                         model: Models.Variant,
                         as: 'variant'
+                    },
+                    {
+                        model: Models.Ingredient,
+                        as: 'ingredient'
                     }
                 ]
             }
@@ -379,9 +437,19 @@ const handlerUpdateIncomingStock = async (req, res) => {
                         { where: { id: incomingStockItem.variant_id } }
                     )
                 }
+                // Call stock ingredient trigger
+                if (incomingStockItem.ingredient_id && incomingStockItem.ingredient) {
+                    await Models.Ingredient.update(
+                        {
+                            qty: incomingStockItem.ingredient.qty + incomingStockItem.qty
+                        },
+                        { where: { id: incomingStockItem.ingredient_id } }
+                    )
+                    ingredientTriggers([incomingStockItem.ingredient_id], incomingStock?.store_id)
+                }
             }
         }
-        incomingStock.updated_at = new Date();
+        incomingStock.updated_at = (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:');
         await incomingStock.save()
     } catch (error) {
         return res.response(RES_TYPES[500](error)).code(500);

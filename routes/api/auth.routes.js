@@ -23,7 +23,8 @@ const handlerLogin = async (req, res) => {
         include: { 
             model: Models.Store, 
             as: 'stores',
-            where: { is_active: true }
+            where: { is_active: true },
+            required: false,
         }
     })
 

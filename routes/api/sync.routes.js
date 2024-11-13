@@ -676,7 +676,7 @@ const handlerSync = async (req, res) => {
             where: {
                 store_id,
                 created_at: {
-                    [Op.gt]: (new Date()).toLocaleString('en-CA', { hour12: false }).replace(',', '').replace(' 24:', ' 00:')
+                    [Op.gt]: `${(new Date()).toISOString().split('T')[0]} 00:00:00`
                 }
             },
             include: [
@@ -747,6 +747,21 @@ const handlerSync = async (req, res) => {
         })
         const paymenttypes = await Models.PaymentType.findAll()
 
+        const overviews = {
+            total_sales: sales.length,
+            total_sales_amount: 0,
+            cash_amount: 0,
+            transfer_amount: 0,
+        }
+
+        if (sales.length > 0) {
+            for (let i = 0; i < sales.length; i++) {
+                overviews.total_sales_amount += sales[i].invoice?.total || 0
+                if (sales[i]?.payment_type_id == 1) overviews.cash_amount += sales[i].invoice?.total || 0
+                if (sales[i]?.payment_type_id == 2) overviews.transfer_amount += sales[i].invoice?.total || 0
+            }
+        }
+
         const data = {
             store,
             staffs,
@@ -756,7 +771,8 @@ const handlerSync = async (req, res) => {
             discounts,
             sales,
             ingredients,
-            paymenttypes
+            paymenttypes,
+            overviews
         }
         return res.response(RES_TYPES[200](data, "Sinkronasi selesai!")).code(200);
     } catch (error) {

@@ -104,7 +104,7 @@ const handlerGetProductsByStore = async (req, res) => {
     const store = await Models.Store.findOne({ where: { id } })
 
     if (!store) return res.response(RES_TYPES[400]('Toko tidak ditemukan!')).code(400);
-    if (req.auth.credentials?.user?.id != store?.owner_id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
+    // if (req.auth.credentials?.user?.id != store?.owner_id) return res.response(RES_TYPES[400]('Anda tidak punya akses!')).code(400);
 
     const {
         search_text,
@@ -373,7 +373,6 @@ const handlerCopyProduct = async (req, res) => {
             })
 
             if (!product) return res.response(RES_TYPES[400](`Terdapat produk yang tidak ditemukan, penyalinan berhasil untuk ${i} produk!`))
-            if (product.store?.owner_id != req.auth.credentials?.user?.id) return res.response(RES_TYPES[400](`Anda tidak memiliki akses pada salah satu produk, penyalinan berhasil untuk ${i} produk!`))
 
             const newProduct = {
                 name: product?.name,
